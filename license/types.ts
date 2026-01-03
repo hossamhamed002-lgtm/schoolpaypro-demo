@@ -6,6 +6,9 @@ export interface LicensePayload {
   license_type: LicenseType;
   start_date: string;
   end_date: string;
+  expires_at?: string;
+  activated_at?: string;
+  status?: 'activated' | 'issued';
   last_verified_at?: string;
   signature: string;
 }
@@ -24,6 +27,8 @@ export interface LicenseEnforcementResult extends LicenseValidationResult {
   bypassed?: boolean;
   generatedTrial?: boolean;
   softBlocked?: boolean;
+  isSoftLocked?: boolean;
+  activationRequired?: boolean;
 }
 
 export type UnsignedLicensePayload = Omit<LicensePayload, 'signature'>;

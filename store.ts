@@ -752,9 +752,10 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     const now = new Date();
     return end < new Date(now.getFullYear(), now.getMonth(), now.getDate());
   })();
-  const isReadOnly = isSubscriptionExpired && !isProgrammer;
-  const isSoftBlocked = !!(licenseGate?.softBlocked && !demoMode && !isProgrammer && !programmerMode);
+  const licenseSoftLocked = !!((licenseGate?.isSoftLocked ?? licenseGate?.softBlocked) && !demoMode && !isProgrammer && !programmerMode);
+  const isSoftBlocked = licenseSoftLocked;
   const softBlockReason = isSoftBlocked ? (licenseGate?.reason || licenseGate?.status || null) : null;
+  const isReadOnly = (isSubscriptionExpired && !isProgrammer) || isSoftBlocked;
 
   useEffect(() => {
     if (demoMode) {

@@ -53,10 +53,10 @@ export const activateOfflineLicense = (
   if (!payload.signature || !verifySignature(payload)) {
     return { ok: false, reason: 'invalid_signature' };
   }
-  const hwid = getHWID();
-  if (!payload.device_fingerprint || payload.device_fingerprint !== hwid) {
-    return { ok: false, reason: 'hwid_mismatch' };
+  if (payload.license_type !== 'paid' && payload.license_type !== 'trial') {
+    return { ok: false, reason: 'corrupt_license' };
   }
+  const hwid = getHWID();
   if (!payload.school_uid || payload.school_uid !== expectedSchoolUid) {
     return { ok: false, reason: 'school_mismatch' };
   }
@@ -71,10 +71,40 @@ export const activateOfflineLicense = (
     return { ok: false, reason: 'corrupt_license' };
   }
 
-  const saved = saveLicense(payload, { allowUpdate: true });
+  const unbound = !payload.device_fingerprint;
+  const boundPayload: LicensePayload = unbound
+    ? (() => {
+      const unsigned: UnsignedLicensePayload = {
+        ...payload,
+        device_fingerprint: hwid,
+        last_verified_at: payload.last_verified_at || new Date().toISOString(),
+        activated_at: new Date().toISOString(),
+        expires_at: payload.end_date,
+        status: 'activated'
+      };
+      const signature = signLicensePayload(unsigned);
+      return { ...unsigned, signature };
+    })()
+    : payload;
+
+  if (!unbound && boundPayload.device_fingerprint !== hwid) {
+    return { ok: false, reason: 'hwid_mismatch' };
+  }
+
+  if (!boundPayload.activated_at) {
+    boundPayload.activated_at = new Date().toISOString();
+  }
+  if (!boundPayload.expires_at) {
+    boundPayload.expires_at = boundPayload.end_date;
+  }
+  if (!boundPayload.status) {
+    boundPayload.status = 'activated';
+  }
+
+  const saved = saveLicense(boundPayload, { allowUpdate: true });
   if (!saved) {
     return { ok: false, reason: 'corrupt_license' };
   }
 
-  return { ok: true, license: payload };
+  return { ok: true, license: boundPayload };
 };

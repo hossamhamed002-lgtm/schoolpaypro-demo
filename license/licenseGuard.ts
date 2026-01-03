@@ -89,7 +89,15 @@ export const validateLicense = (expectedSchoolUid?: string): LicenseValidationRe
 
 export const enforceLicense = (options?: EnforcementOptions): LicenseEnforcementResult => {
   if (isDemoMode()) {
-    return { status: 'valid', allowed: true, license: null, reason: 'demo_mode', bypassed: true };
+    return {
+      status: 'valid',
+      allowed: true,
+      license: null,
+      reason: 'demo_mode',
+      bypassed: true,
+      isSoftLocked: false,
+      activationRequired: false
+    };
   }
   const hwid = getHWID();
   const validation = validateLicense(options?.expectedSchoolUid);
@@ -134,11 +142,35 @@ export const enforceLicense = (options?: EnforcementOptions): LicenseEnforcement
           : '[LICENSE][SOFT] school mismatch detected';
       console.info(label);
     }
-    return { ...validation, allowed: true, softBlocked: true, reason: softReason || validation.reason };
+    return {
+      ...validation,
+      allowed: true,
+      softBlocked: true,
+      isSoftLocked: true,
+      activationRequired: false,
+      reason: softReason || validation.reason
+    };
   }
 
   const allowed = validation.status === 'valid' || validation.status === 'trial';
-  return { ...validation, allowed };
+  if (allowed) {
+    return {
+      ...validation,
+      allowed: true,
+      isSoftLocked: false,
+      activationRequired: false
+    };
+  }
+
+  const activationRequired = validation.status === 'missing' || validation.status === 'invalid';
+  const reason = activationRequired ? 'missing' : validation.reason || validation.status;
+  return {
+    ...validation,
+    allowed: false,
+    activationRequired,
+    reason,
+    isSoftLocked: false
+  };
 };
 
 export const canCreateTrial = () => {
