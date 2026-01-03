@@ -1,4 +1,5 @@
 let _cachedDemoMode: boolean | null = null;
+let _cachedDemoExpired: boolean | null = null;
 
 export function isDemoMode(): boolean {
   if (_cachedDemoMode !== null) return _cachedDemoMode;
@@ -37,4 +38,34 @@ export function showDemoToast(message?: string) {
 export function applyDemoPersistenceGuards() {
   if (!isDemoMode()) return;
   console.info('[DEMO MODE] Persistence guards enabled');
+}
+
+export function isDemoExpired(): boolean {
+  if (!isDemoMode()) return false;
+
+  if (_cachedDemoExpired !== null) return _cachedDemoExpired;
+
+  try {
+    const storage = typeof window !== 'undefined' ? window.sessionStorage : null;
+    if (!storage) {
+      _cachedDemoExpired = true;
+      return true;
+    }
+    const raw = storage.getItem('EDULOGIC_DEMO_SESSION_V1');
+    if (!raw) {
+      _cachedDemoExpired = true;
+      return true;
+    }
+    const parsed = JSON.parse(raw) as { startedAt?: number; expiresAt?: number };
+    if (!parsed || typeof parsed.expiresAt !== 'number') {
+      storage.removeItem('EDULOGIC_DEMO_SESSION_V1');
+      _cachedDemoExpired = true;
+      return true;
+    }
+    _cachedDemoExpired = Date.now() > parsed.expiresAt;
+    return _cachedDemoExpired;
+  } catch {
+    _cachedDemoExpired = true;
+    return true;
+  }
 }

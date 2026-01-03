@@ -1,4 +1,5 @@
-import { isDemoMode } from '../guards/appMode';
+import { isDemoMode, isDemoExpired } from '../guards/appMode';
+import { getDemoSession, isDemoExpired } from '../demo/demoSession';
 
 export enum StorageScope {
   SCHOOL_DATA = 'SCHOOL_DATA',
@@ -46,6 +47,10 @@ const buildKey = (scope: StorageScope, key: string, namespace?: string) => {
 };
 
 class LocalStorageDriver implements StorageDriver {
+  private isDemoRuntime() {
+    return isDemoMode() && !!getDemoSession() && !isDemoExpired();
+  }
+
   load<T>(scope: StorageScope, key: string, fallback: T, namespace?: string): T {
     if (isDemoMode() || typeof window === 'undefined') return fallback;
     const { primary, legacy } = buildKey(scope, key, namespace);
@@ -59,7 +64,9 @@ class LocalStorageDriver implements StorageDriver {
   }
 
   save(scope: StorageScope, key: string, value: unknown, namespace?: string): boolean {
+    if (this.isDemoRuntime()) return true;
     if (isDemoMode()) return true;
+    if (isDemoMode() && isDemoExpired()) throw new Error('DEMO_EXPIRED_READ_ONLY');
     if (typeof window === 'undefined') return false;
     const serialized = stringifyValue(value);
     if (!serialized || !isWithinLimit(serialized)) return false;
@@ -73,6 +80,8 @@ class LocalStorageDriver implements StorageDriver {
   }
 
   remove(scope: StorageScope, key: string, namespace?: string): void {
+    if (this.isDemoRuntime()) return;
+    if (isDemoMode() && isDemoExpired()) throw new Error('DEMO_EXPIRED_READ_ONLY');
     if (isDemoMode() || typeof window === 'undefined') return;
     const { primary, legacy } = buildKey(scope, key, namespace);
     window.localStorage.removeItem(primary);
@@ -80,6 +89,8 @@ class LocalStorageDriver implements StorageDriver {
   }
 
   clearScope(scope: StorageScope, namespace?: string): void {
+    if (this.isDemoRuntime()) return;
+    if (isDemoMode() && isDemoExpired()) throw new Error('DEMO_EXPIRED_READ_ONLY');
     if (isDemoMode() || typeof window === 'undefined') return;
     const prefix = `${scope}__`;
     Object.keys(window.localStorage)

@@ -1,4 +1,5 @@
-import { isDemoMode } from './src/guards/appMode';
+import { isDemoMode, isDemoExpired } from './src/guards/appMode';
+import { getDemoSession } from './src/demo/demoSession';
 import { load as loadData, save as saveData, StorageScope } from './src/storage/dataLayer';
 
 // المفتاح الثابت والنهائي - لن يتغير أبداً لضمان الاستقرار
@@ -55,6 +56,9 @@ const getUidForNamespace = (code?: string): string | null => {
 };
 
 export const saveToStorage = (data: any, namespace?: string) => {
+  const demoRuntime = isDemoMode() && !!getDemoSession() && !isDemoExpired();
+  if (isDemoMode() && isDemoExpired()) throw new Error('DEMO_EXPIRED_READ_ONLY');
+  if (demoRuntime) return true;
   if (isDemoMode()) return true;
   try {
     const scopedKey = buildScopedKey(DB_KEY, namespace);
@@ -88,6 +92,9 @@ export const loadFromStorageKey = <T>(key: string, fallback: T, namespace?: stri
   })();
 
 export const saveToStorageKey = (key: string, data: unknown, namespace?: string) => {
+  const demoRuntime = isDemoMode() && !!getDemoSession() && !isDemoExpired();
+  if (isDemoMode() && isDemoExpired()) throw new Error('DEMO_EXPIRED_READ_ONLY');
+  if (demoRuntime) return true;
   if (isDemoMode()) return true;
   try {
     saveData(StorageScope.SCHOOL_DATA, buildScopedKey(key, namespace), data);
@@ -176,6 +183,11 @@ export const getSchoolLogoByCode = (schoolCode: string) => {
   return school?.Logo || null;
 };
 export const exportDatabase = (data: any) => {
+  const demoRuntime = isDemoMode() && !!getDemoSession() && !isDemoExpired();
+  if (isDemoMode() && isDemoExpired()) throw new Error('DEMO_EXPIRED_READ_ONLY');
+  if (demoRuntime) {
+    return;
+  }
   if (isDemoMode()) {
     return;
   }
@@ -189,6 +201,11 @@ export const exportDatabase = (data: any) => {
 };
 
 export const importDatabase = (file: File): Promise<any> => {
+  const demoRuntime = isDemoMode() && !!getDemoSession() && !isDemoExpired();
+  if (isDemoMode() && isDemoExpired()) throw new Error('DEMO_EXPIRED_READ_ONLY');
+  if (demoRuntime) {
+    return Promise.resolve({});
+  }
   if (isDemoMode()) {
     return Promise.resolve({});
   }

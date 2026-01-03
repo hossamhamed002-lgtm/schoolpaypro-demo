@@ -603,6 +603,7 @@ const describeLicenseError = (result: LicenseEnforcementResult | null, lang: 'ar
   const [storageEnabled, setStorageEnabled] = useState(false);
   const [licenseGate, setLicenseGate] = useState<LicenseEnforcementResult | null>(null);
   const [licenseChecked, setLicenseChecked] = useState(false);
+  const [demoReadOnly, setDemoReadOnly] = useState(false);
 
   useEffect(() => {
     if (demoMode) {
@@ -725,13 +726,13 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
 
   // ميزة الحفظ التلقائي مع مؤشر بصري
   useEffect(() => {
-    if (!storageEnabled || demoMode) return;
+    if (!storageEnabled || demoMode || demoReadOnly) return;
     setIsSaved(false);
     if (saveToStorage(db, activeSchoolCode)) setIsSaved(true);
   }, [db, activeSchoolCode, storageEnabled, demoMode]);
 
   useEffect(() => {
-    if (!storageEnabled || demoMode) return;
+    if (!storageEnabled || demoMode || demoReadOnly) return;
     saveToStorageKey(STORAGE_KEYS.accounts, db.accounts || [], activeSchoolCode);
     saveToStorageKey(STORAGE_KEYS.receipts, db.receipts || [], activeSchoolCode);
     saveToStorageKey(STORAGE_KEYS.banks, db.banks || [], activeSchoolCode);
@@ -758,7 +759,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
 
   // الحفظ عند إغلاق التبويب
   useEffect(() => {
-    if (!storageEnabled || demoMode) return;
+    if (!storageEnabled || demoMode || demoReadOnly) return;
     const handleUnload = () => saveToStorage(db, activeSchoolCode);
     window.addEventListener('beforeunload', handleUnload);
     return () => window.removeEventListener('beforeunload', handleUnload);
@@ -766,7 +767,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
 
   // مزامنة بيانات الموظفين مع الباك-إند
   useEffect(() => {
-    if (!activeSchoolCode || !storageEnabled || !hrSyncEnabled || demoMode) return;
+    if (!activeSchoolCode || !storageEnabled || !hrSyncEnabled || demoMode || demoReadOnly) return;
     let cancelled = false;
     (async () => {
       try {
@@ -786,7 +787,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
   }, [activeSchoolCode, storageEnabled, hrSyncEnabled]);
 
   useEffect(() => {
-    if (!activeSchoolCode || !storageEnabled || !hrSyncEnabled || demoMode) return;
+    if (!activeSchoolCode || !storageEnabled || !hrSyncEnabled || demoMode || demoReadOnly) return;
     (async () => {
       try {
         await fetch(`${API_BASE}/employees/${encodeURIComponent(activeSchoolCode)}`, {
@@ -914,8 +915,12 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
   };
 
   const guardedSetDb = (updater: any) => {
-    if (isReadOnly) {
-      alert(lang === 'ar' ? 'انتهى الاشتراك: الوضع الآن قراءة فقط.' : 'Subscription expired: read-only mode.');
+    if (isReadOnly || demoReadOnly) {
+      alert(
+        lang === 'ar'
+          ? 'انتهت مدة التجربة. برجاء التواصل لتفعيل النسخة الكاملة.'
+          : 'Demo period expired. Please contact us to activate the full version.'
+      );
       return;
     }
     setDb(updater);
