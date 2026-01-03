@@ -1,0 +1,7 @@
+{
+  "name": "SchoolPay Pro - Master School Blueprint",
+  "description": "A comprehensive School Management System (SMS) with multi-tenancy, academic archiving, and automated double-entry accounting based on the Master Blueprint specification.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
