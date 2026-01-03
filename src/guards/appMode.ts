@@ -8,11 +8,15 @@ export function detectAppMode(): AppMode {
   if (cachedMode) return cachedMode;
 
   // 1️⃣ Explicit env (Vercel / CI)
-  const envMode = (import.meta as any).env?.VITE_APP_MODE;
-  if (envMode === 'demo') {
+  try {
+  const env = import.meta.env as any;
+  if (env && env.VITE_APP_MODE === 'demo') {
     cachedMode = 'demo';
     return cachedMode;
   }
+} catch {
+  // ignore – build-safe
+}
 
   // 2️⃣ Force demo on vercel.app (HARD RULE)
   if (typeof window !== 'undefined') {
