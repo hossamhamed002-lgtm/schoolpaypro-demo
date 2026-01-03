@@ -9,6 +9,7 @@ const nodeOs = getNodeOs();
 const nodePath = getNodePath();
 
 const STORAGE_KEY = '__EDULOGIC_LICENSE_V1';
+const ALT_STORAGE_KEY = 'EDULOGIC_LICENSE_V1';
 const STORAGE_FILENAME = '.edulogic_license_v1';
 const AES_ALGO = 'aes-256-gcm';
 const IV_LENGTH = 12;
@@ -58,7 +59,7 @@ const readPersisted = (): string | null => {
   if (isDemoMode()) return null;
   const storage = getLocalStorage();
   if (storage) {
-    const raw = storage.getItem(STORAGE_KEY);
+    const raw = storage.getItem(STORAGE_KEY) || storage.getItem(ALT_STORAGE_KEY);
     if (raw) return raw;
   }
   const filePath = getFilePath();
@@ -78,6 +79,7 @@ const persist = (value: string) => {
   if (storage) {
     try {
       storage.setItem(STORAGE_KEY, value);
+      storage.setItem(ALT_STORAGE_KEY, value);
     } catch {
       // ignore quota errors to keep offline flow alive
     }

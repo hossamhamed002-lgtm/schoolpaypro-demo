@@ -21,6 +21,9 @@ import { isDemoMode } from './src/guards/appMode';
 import LandingPage from './src/landing/LandingPage';
 import AdminLicensesPage from './src/admin/AdminLicensesPage';
 import { BUY_URL } from './src/config/links';
+import { getLastBindingStatus } from './license/licenseGuard';
+import type { LicenseBindingStatus } from './src/license/hwidBinding';
+import LicenseActivationScreen from './components/license/LicenseActivationScreen';
 
 type TabId =
   | 'dashboard'
@@ -37,6 +40,8 @@ type TabId =
 const App: React.FC = () => {
   const store = useStore();
   const { t } = store;
+  const [bindingStatus, setBindingStatus] = useState<LicenseBindingStatus | null>(null);
+  const [showHwidWarning, setShowHwidWarning] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
   const enableLazyFonts = React.useCallback(() => {
     const link = document.getElementById('lazy-fonts') as HTMLLinkElement | null;
@@ -57,8 +62,37 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const softBlockCopy = React.useMemo(() => {
+    if (!store.isSoftBlocked) return null;
+    const isAr = store.lang === 'ar';
+    const reason = store.softBlockReason || 'expired';
+    if (reason === 'hwid_mismatch') {
+      return isAr
+        ? '⚠️ الترخيص مرتبط بجهاز آخر — تم تفعيل وضع القراءة فقط'
+        : '⚠️ License bound to another device — read-only mode enabled';
+    }
+    if (reason === 'school_mismatch') {
+      return isAr
+        ? '⚠️ الترخيص غير مرتبط بهذه المدرسة — تم تفعيل وضع القراءة فقط'
+        : '⚠️ License not bound to this school — read-only mode enabled';
+    }
+    return isAr
+      ? '⚠️ انتهت صلاحية الترخيص — يمكنك تصفح النظام لكن لا يمكنك التعديل'
+      : '⚠️ License expired — read-only mode enabled';
+  }, [store.isSoftBlocked, store.lang, store.softBlockReason]);
+
   const pathIsDemo = typeof window !== 'undefined' && window.location.pathname.startsWith('/demo');
   const pathIsAdmin = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
+  const activationReason = store.licenseStatus?.reason || store.licenseStatus?.status;
+  const shouldShowActivation =
+    !!(
+      !pathIsAdmin
+      && !isDemoMode()
+      && !store.isProgrammer
+      && store.licenseStatus
+      && (store.licenseStatus.allowed === false || store.licenseStatus.softBlocked)
+      && ['expired', 'hwid_mismatch', 'missing_license'].includes(String(activationReason))
+    );
 
   const DemoBadge = () => (
     isDemoMode() ? (
@@ -70,6 +104,76 @@ const App: React.FC = () => {
       </div>
     ) : null
   );
+
+  const HwidWarning = () => {
+    if (isDemoMode() || !showHwidWarning || !bindingStatus || bindingStatus.status !== 'mismatch') {
+      return null;
+    }
+    const isProgrammer = store.isProgrammer;
+    return (
+      <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 max-w-2xl px-4">
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg shadow p-3 text-sm">
+          <div className="font-bold">⚠️ هذا الترخيص مُفعل على جهاز آخر</div>
+          <div className="text-xs mt-1 text-amber-700">
+            يمكنك المتابعة مؤقتًا، لكن قد يتم تقييد الاستخدام لاحقًا
+          </div>
+          {isProgrammer && (
+            <div className="mt-2 text-[11px] leading-tight space-y-1">
+              <div>
+                HWID الحالي:{' '}
+                <code className="font-mono break-all">{bindingStatus.hwid}</code>
+              </div>
+              {bindingStatus.boundHwid ? (
+                <div>
+                  HWID المرتبط بالترخيص:{' '}
+                  <code className="font-mono break-all">{bindingStatus.boundHwid}</code>
+                </div>
+              ) : null}
+              <div className="font-semibold">الحالة: mismatch</div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const SoftBlockBanner = () => {
+    if (!softBlockCopy || !store.currentUser) return null;
+    return (
+      <div className="fixed top-0 left-0 right-0 z-[60]">
+        <div className="mx-auto max-w-5xl px-4 py-3 bg-amber-50 border-b border-amber-200 text-amber-900 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 shadow">
+          <div className="text-sm font-semibold leading-snug">{softBlockCopy}</div>
+          <a
+            href={BUY_URL || 'https://wa.me/201094981227'}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 text-xs font-bold px-3 py-2 rounded-lg bg-emerald-600 text-white shadow hover:bg-emerald-700 transition-colors"
+          >
+            {store.lang === 'ar' ? 'تجديد الترخيص' : 'Renew license'}
+          </a>
+        </div>
+      </div>
+    );
+  };
+
+  React.useEffect(() => {
+    if (isDemoMode()) {
+      return;
+    }
+    const status = getLastBindingStatus?.();
+    if (!status || status.status !== 'mismatch') {
+      return;
+    }
+    setBindingStatus(status);
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const warned = sessionStorage.getItem('EDULOGIC_HWID_WARNED_V1');
+    if (!warned) {
+      setShowHwidWarning(true);
+      sessionStorage.setItem('EDULOGIC_HWID_WARNED_V1', '1');
+    }
+  }, [store.currentUser]);
 
   React.useEffect(() => {
     if (store.setHrSyncEnabled) {
@@ -124,6 +228,16 @@ const App: React.FC = () => {
     return <AdminLicensesPage />;
   }
 
+  if (shouldShowActivation) {
+    return (
+      <>
+        <LicenseActivationScreen store={store} />
+        <DemoBadge />
+        <HwidWarning />
+      </>
+    );
+  }
+
   if (!store.currentUser) {
     return (
       <>
@@ -136,6 +250,8 @@ const App: React.FC = () => {
           defaultSchoolCode={store.schoolCode}
         />
         <DemoBadge />
+        <HwidWarning />
+        <SoftBlockBanner />
         {isDemoMode() && (
           <a
             className="fixed bottom-4 right-4 z-50 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black shadow hover:bg-indigo-700"
@@ -157,7 +273,10 @@ const App: React.FC = () => {
         selectedYearId={store.workingYearId}
         setSelectedYearId={store.setActiveYearId}
       >
-        <div className="flex h-screen bg-slate-50 transition-all duration-300 overflow-hidden">
+        <div
+          className="flex h-screen bg-slate-50 transition-all duration-300 overflow-hidden"
+          style={store.isSoftBlocked ? { paddingTop: '64px' } : undefined}
+        >
           <Sidebar
             activeTab={activeTab}
             setActiveTab={setActiveTab}
@@ -191,6 +310,8 @@ const App: React.FC = () => {
         </div>
       </AcademicYearProvider>
       <DemoBadge />
+      <HwidWarning />
+      <SoftBlockBanner />
       {isDemoMode() && (
         <a
           className="fixed bottom-4 right-4 z-50 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black shadow hover:bg-indigo-700"

@@ -23,6 +23,7 @@ export interface LicenseEnforcementResult extends LicenseValidationResult {
   allowed: boolean;
   bypassed?: boolean;
   generatedTrial?: boolean;
+  softBlocked?: boolean;
 }
 
 export type UnsignedLicensePayload = Omit<LicensePayload, 'signature'>;

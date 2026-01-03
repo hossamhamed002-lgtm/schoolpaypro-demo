@@ -3,12 +3,18 @@ import { createTrialLicense, hasTrialBeenUsed, signLicensePayload } from './lice
 import { loadLicense, saveLicense, licenseExists } from './licenseStorage';
 import { LicenseEnforcementResult, LicensePayload, LicenseValidationResult } from './types';
 import getHWID from './hwid';
+import { checkHwidBinding, LicenseBindingStatus } from '../src/license/hwidBinding';
 
 type EnforcementOptions = {
   expectedSchoolUid?: string;
   allowTrialFallback?: boolean;
   programmerBypass?: boolean;
+  softEnforcement?: boolean;
 };
+
+let lastBindingStatus: LicenseBindingStatus | null = null;
+
+export const getLastBindingStatus = () => lastBindingStatus;
 
 const verifySignature = (license: LicensePayload) => {
   const { signature, ...unsigned } = license;
@@ -31,6 +37,7 @@ const refreshLastVerified = (license: LicensePayload) => {
 };
 
 export const validateLicense = (expectedSchoolUid?: string): LicenseValidationResult => {
+  lastBindingStatus = checkHwidBinding();
   if (isDemoMode()) {
     return { status: 'valid', license: null, reason: 'demo_mode', trialAvailable: false };
   }
@@ -108,6 +115,26 @@ export const enforceLicense = (options?: EnforcementOptions): LicenseEnforcement
 
   if (options?.programmerBypass && validation.status !== 'valid' && validation.status !== 'trial') {
     return { ...validation, allowed: true, bypassed: true };
+  }
+
+  const softReason = (() => {
+    if (validation.status === 'expired') return 'expired';
+    if (validation.reason === 'hwid_mismatch') return 'hwid_mismatch';
+    if (validation.reason === 'school_mismatch') return 'school_mismatch';
+    return null;
+  })();
+  const softEligible = softReason && options?.softEnforcement !== false && !options?.programmerBypass;
+
+  if (softEligible) {
+    if ((import.meta as any).env?.DEV) {
+      const label = softReason === 'expired'
+        ? '[LICENSE][SOFT] expired \u2192 read-only'
+        : softReason === 'hwid_mismatch'
+          ? '[LICENSE][SOFT] hwid mismatch detected'
+          : '[LICENSE][SOFT] school mismatch detected';
+      console.info(label);
+    }
+    return { ...validation, allowed: true, softBlocked: true, reason: softReason || validation.reason };
   }
 
   const allowed = validation.status === 'valid' || validation.status === 'trial';

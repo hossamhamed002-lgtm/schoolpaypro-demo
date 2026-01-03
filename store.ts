@@ -504,19 +504,42 @@ const describeLicenseError = (result: LicenseEnforcementResult | null, lang: 'ar
   }
 };
 
+const describeSoftBlock = (reason: string | null | undefined, lang: 'ar' | 'en') => {
+  const isAr = lang === 'ar';
+  switch (reason) {
+    case 'expired':
+      return isAr
+        ? '⚠️ انتهت صلاحية الترخيص — يمكنك تصفح النظام لكن لا يمكنك التعديل'
+        : '⚠️ License expired — read-only mode enabled';
+    case 'hwid_mismatch':
+      return isAr
+        ? '⚠️ هذا الترخيص مرتبط بجهاز آخر — يمكنك التصفح فقط'
+        : '⚠️ License bound to another device — read-only mode';
+    case 'school_mismatch':
+      return isAr
+        ? '⚠️ الترخيص غير مرتبط بهذه المدرسة — التعديل معطل'
+        : '⚠️ License not bound to this school — read-only mode';
+    default:
+      return isAr
+        ? '⚠️ وضع القراءة فقط مفعّل مؤقتًا بسبب التحقق من الترخيص'
+        : '⚠️ Read-only mode enabled due to license verification';
+  }
+};
+
   const safeEnforceLicense = (options: Parameters<typeof enforceLicense>[0]) => {
+    const mergedOptions = { softEnforcement: true, ...(options || {}) };
     if (demoMode) {
       return { allowed: true, status: 'valid', reason: 'demo_mode', bypassed: true } as LicenseEnforcementResult;
     }
     if (DISABLE_LICENSE_CHECK) {
       return { allowed: true, status: 'valid', reason: 'license_check_disabled' } as LicenseEnforcementResult;
     }
-    if (!options?.expectedSchoolUid) {
+    if (!mergedOptions.expectedSchoolUid) {
       return { allowed: true, status: 'missing', reason: 'missing_school_uid' } as LicenseEnforcementResult;
     }
-    console.info('[LICENSE] enforcing for UID:', options.expectedSchoolUid);
+    console.info('[LICENSE] enforcing for UID:', mergedOptions.expectedSchoolUid);
     try {
-      return enforceLicense(options);
+      return enforceLicense(mergedOptions);
     } catch (err) {
       console.error('[LICENSE][ERROR]', err);
       return { allowed: false, status: 'error', reason: 'runtime_error' } as LicenseEnforcementResult;
@@ -716,34 +739,51 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     }
   };
 
+  const activeSchool = db.schools[0];
+  const activeSchoolUid = activeSchool?.school_uid;
+  const programmerMode = !!programmerContext && activeSchoolCode !== PROGRAMMER_CODE;
+  const isProgrammer = !!currentUser && (
+    currentUser.Username === 'dev_owner' || currentUser.Permissions?.includes('programmer')
+  );
+  const isSubscriptionExpired = (() => {
+    if (!activeSchool?.Subscription_End) return false;
+    const end = new Date(activeSchool.Subscription_End);
+    if (Number.isNaN(end.getTime())) return false;
+    const now = new Date();
+    return end < new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  })();
+  const isReadOnly = isSubscriptionExpired && !isProgrammer;
+  const isSoftBlocked = !!(licenseGate?.softBlocked && !demoMode && !isProgrammer && !programmerMode);
+  const softBlockReason = isSoftBlocked ? (licenseGate?.reason || licenseGate?.status || null) : null;
+
   useEffect(() => {
     if (demoMode) {
       setStorageEnabled(false);
       return;
     }
-    const allowedByLicense = !licenseGate || licenseGate.allowed || licenseGate.bypassed;
+    const allowedByLicense = (!licenseGate || licenseGate.allowed || licenseGate.bypassed) && !isSoftBlocked;
     setStorageEnabled(isAuthenticated(currentUser, activeSchoolCode) && allowedByLicense);
-  }, [currentUser, activeSchoolCode, licenseGate, demoMode]);
+  }, [currentUser, activeSchoolCode, licenseGate, demoMode, isSoftBlocked]);
 
   // ميزة الحفظ التلقائي مع مؤشر بصري
   useEffect(() => {
-    if (!storageEnabled || demoMode || demoReadOnly) return;
+    if (!storageEnabled || demoMode || demoReadOnly || isSoftBlocked) return;
     setIsSaved(false);
     if (saveToStorage(db, activeSchoolCode)) setIsSaved(true);
-  }, [db, activeSchoolCode, storageEnabled, demoMode]);
+  }, [db, activeSchoolCode, storageEnabled, demoMode, isSoftBlocked]);
 
   useEffect(() => {
-    if (!storageEnabled || demoMode || demoReadOnly) return;
+    if (!storageEnabled || demoMode || demoReadOnly || isSoftBlocked) return;
     saveToStorageKey(STORAGE_KEYS.accounts, db.accounts || [], activeSchoolCode);
     saveToStorageKey(STORAGE_KEYS.receipts, db.receipts || [], activeSchoolCode);
     saveToStorageKey(STORAGE_KEYS.banks, db.banks || [], activeSchoolCode);
     saveToStorageKey(STORAGE_KEYS.suppliers, db.suppliers || [], activeSchoolCode);
     saveToStorageKey(STORAGE_KEYS.journalEntries, db.journalEntries || [], activeSchoolCode);
     saveToStorageKey(STORAGE_KEYS.feeStructure, db.feeStructure || [], activeSchoolCode);
-  }, [db.accounts, db.receipts, db.banks, db.suppliers, db.journalEntries, db.feeStructure, activeSchoolCode, storageEnabled, demoMode]);
+  }, [db.accounts, db.receipts, db.banks, db.suppliers, db.journalEntries, db.feeStructure, activeSchoolCode, storageEnabled, demoMode, isSoftBlocked]);
 
   useEffect(() => {
-    if (demoMode) return;
+    if (demoMode || isSoftBlocked) return;
     const hmr = (import.meta as ImportMeta & { hot?: { dispose: (cb: () => void) => void } }).hot;
     if (!hmr) return;
     hmr.dispose(() => {
@@ -755,16 +795,16 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
       saveToStorageKey(STORAGE_KEYS.journalEntries, db.journalEntries || []);
       saveToStorageKey(STORAGE_KEYS.feeStructure, db.feeStructure || []);
     });
-  }, [db]);
+  }, [db, isSoftBlocked]);
 
 
   // الحفظ عند إغلاق التبويب
   useEffect(() => {
-    if (!storageEnabled || demoMode || demoReadOnly) return;
+    if (!storageEnabled || demoMode || demoReadOnly || isSoftBlocked) return;
     const handleUnload = () => saveToStorage(db, activeSchoolCode);
     window.addEventListener('beforeunload', handleUnload);
     return () => window.removeEventListener('beforeunload', handleUnload);
-  }, [db, activeSchoolCode, storageEnabled, demoMode]);
+  }, [db, activeSchoolCode, storageEnabled, demoMode, isSoftBlocked]);
 
   // مزامنة بيانات الموظفين مع الباك-إند
   useEffect(() => {
@@ -825,20 +865,6 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
   }, [db.years, activeSchoolCode, workingYearId]);
 
   const t = translations[lang];
-  const activeSchool = db.schools[0];
-  const activeSchoolUid = activeSchool?.school_uid;
-  const programmerMode = !!programmerContext && activeSchoolCode !== PROGRAMMER_CODE;
-  const isProgrammer = !!currentUser && (
-    currentUser.Username === 'dev_owner' || currentUser.Permissions?.includes('programmer')
-  );
-  const isSubscriptionExpired = (() => {
-    if (!activeSchool?.Subscription_End) return false;
-    const end = new Date(activeSchool.Subscription_End);
-    if (Number.isNaN(end.getTime())) return false;
-    const now = new Date();
-    return end < new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  })();
-  const isReadOnly = isSubscriptionExpired && !isProgrammer;
   const userPermissions = Array.isArray(currentUser?.Permissions) ? currentUser.Permissions.filter(Boolean) : [];
   // لا نقيّد المبرمج بصلاحيات المستخدم حتى لا يتأثر نطاق الوصول الخاص به.
   const hasUserModuleScope = !isProgrammer && userPermissions.length > 0;
@@ -887,6 +913,37 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     }
   }, [activeSchoolUid, programmerMode, licenseChecked, demoMode, isProgrammer, currentUser]);
 
+  const refreshLicenseStatus = () => {
+    if (demoMode) {
+      const gate = { allowed: true, status: 'valid', reason: 'demo_mode', bypassed: true } as LicenseEnforcementResult;
+      setLicenseGate(gate);
+      setLicenseChecked(true);
+      return { ok: true, result: gate };
+    }
+    if (isProgrammer) {
+      const gate = { allowed: true, status: 'valid', reason: 'programmer_bypass', bypassed: true } as LicenseEnforcementResult;
+      setLicenseGate(gate);
+      setLicenseChecked(true);
+      return { ok: true, result: gate };
+    }
+    if (!activeSchoolUid) {
+      return { ok: false, reason: 'missing_school_uid' };
+    }
+    const guard = safeEnforceLicense({
+      expectedSchoolUid: activeSchoolUid,
+      allowTrialFallback: true
+    });
+    setLicenseGate(guard);
+    setLicenseChecked(true);
+    if (!guard.allowed && !guard.bypassed) {
+      setStorageEnabled(false);
+      if (currentUser) {
+        setCurrentUser(null);
+      }
+    }
+    return { ok: guard.allowed || !!guard.bypassed, result: guard };
+  };
+
   const activeYear = db.years.find((y: any) => y.Year_ID === workingYearId);
 
   const allStages = db.stages || [];
@@ -908,6 +965,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
   const journalEntries = allJournalEntries.filter((entry: any) => getItemYearId(entry) === workingYearId);
 
   const logAction = (data: any) => {
+    if (isSoftBlocked) return;
     const newLog: AuditEntry = {
       Log_ID: `LOG-${Date.now()}`,
       Timestamp: new Date().toLocaleString('sv-SE').slice(0, 16),
@@ -921,6 +979,10 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
   };
 
   const guardedSetDb = (updater: any) => {
+    if (isSoftBlocked) {
+      alert(describeSoftBlock(softBlockReason, lang));
+      return;
+    }
     if (isReadOnly || demoReadOnly) {
       alert(
         lang === 'ar'
@@ -1070,7 +1132,8 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
       }
       const licenseCheck = safeEnforceLicense({
         expectedSchoolUid: ensured.uid || ensured.db?.schools?.[0]?.school_uid,
-        allowTrialFallback: true
+        allowTrialFallback: true,
+        softEnforcement: !user?.Permissions?.includes('programmer')
       });
       setLicenseGate(licenseCheck);
       if (!licenseCheck.allowed) {
@@ -1100,7 +1163,8 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     }
     const licenseCheck = safeEnforceLicense({
       expectedSchoolUid: nextDb.schools?.[0]?.school_uid,
-      programmerBypass: true
+      programmerBypass: true,
+      softEnforcement: false
     });
     setLicenseGate(licenseCheck);
     setDb(nextDb);
@@ -1142,7 +1206,8 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     }
     const licenseCheck = safeEnforceLicense({
       expectedSchoolUid: pendingOtp.db?.schools?.[0]?.school_uid,
-      allowTrialFallback: true
+      allowTrialFallback: true,
+      softEnforcement: !pendingOtp.user?.Permissions?.includes('programmer')
     });
     setLicenseGate(licenseCheck);
     if (!licenseCheck.allowed) {
@@ -1195,7 +1260,8 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     }
     const licenseCheck = safeEnforceLicense({
       expectedSchoolUid: ensured.uid || ensured.db?.schools?.[0]?.school_uid,
-      allowTrialFallback: true
+      allowTrialFallback: true,
+      softEnforcement: !user?.Permissions?.includes('programmer')
     });
     setLicenseGate(licenseCheck);
     if (!licenseCheck.allowed) {
@@ -1266,10 +1332,13 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     activeSchool, activeYear, currentUser, workingYearId, setActiveYearId: setWorkingYearId,
     availableModules,
     isReadOnly,
+    isSoftBlocked,
+    softBlockReason,
     isRedistributingStudents,
     isProgrammer,
     programmerMode,
     licenseStatus: licenseGate,
+    refreshLicenseStatus,
     schoolCode: activeSchoolCode,
     switchSchool,
     login,
@@ -1327,11 +1396,19 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
           alert(lang === 'ar' ? 'متاح في النسخة الكاملة فقط' : 'Available in the full version only');
           return;
         }
+        if (isSoftBlocked) {
+          alert(describeSoftBlock(softBlockReason, lang));
+          return;
+        }
         return exportDatabase(db);
       },
       importData: async (file: File) => {
         if (demoMode) {
           alert(lang === 'ar' ? 'متاح في النسخة الكاملة فقط' : 'Available in the full version only');
+          return;
+        }
+        if (isSoftBlocked) {
+          alert(describeSoftBlock(softBlockReason, lang));
           return;
         }
         try {
@@ -1347,6 +1424,10 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
       } catch (e) { alert(e); }
     },
     updateSchool: (data: any) => {
+      if (isSoftBlocked) {
+        alert(describeSoftBlock(softBlockReason, lang));
+        return;
+      }
       if (isReadOnly) {
         alert(lang === 'ar' ? 'انتهى الاشتراك: الوضع الآن قراءة فقط.' : 'Subscription expired: read-only mode.');
         return;
