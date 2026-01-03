@@ -43,6 +43,7 @@ const SystemLogin: React.FC<SystemLoginProps> = ({
   const [programmerPass, setProgrammerPass] = useState('');
   const [programmerError, setProgrammerError] = useState('');
   const [otpStep, setOtpStep] = useState<{ sessionId: string; expiresAt: number; attemptsLeft: number } | null>(null);
+  const [demoLoading, setDemoLoading] = useState(false);
   const otpSettings = getSecuritySettings();
   const PROGRAMMER_KEY = 'EDULOGIC_PROGRAMMER_CREDENTIALS_V1';
   const demoMode = isDemoMode();
@@ -52,11 +53,24 @@ const SystemLogin: React.FC<SystemLoginProps> = ({
     setPassword('demo');
   };
 
+  const handleDemoLoginClick = () => {
+    if (!demoMode) return;
+    setDemoLoading(true);
+    try {
+      const result = onLogin('DEMO', 'demo_admin', 'demo');
+      if (!result?.ok) {
+        alert('تعذر الدخول للنسخة التجريبية. برجاء المحاولة لاحقاً.');
+      }
+    } finally {
+      setDemoLoading(false);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (demoMode) {
-      onDemoLogin?.();
+      handleDemoLoginClick();
       return;
     }
     const result = onLogin(schoolCode, username, password);
@@ -174,6 +188,14 @@ const SystemLogin: React.FC<SystemLoginProps> = ({
                   تعبئة تلقائية
                 </button>
               </div>
+              <button
+                type="button"
+                onClick={handleDemoLoginClick}
+                className="mt-3 w-full bg-indigo-600 text-white py-3 rounded-lg font-black hover:bg-indigo-700 transition flex items-center justify-center gap-2 disabled:opacity-60"
+                disabled={demoLoading}
+              >
+                {demoLoading ? 'جاري الدخول...' : <> <LogIn size={18} /> دخول النسخة التجريبية</>}
+              </button>
             </div>
           )}
           <form onSubmit={handleSubmit} className="space-y-6">
