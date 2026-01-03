@@ -1,4 +1,4 @@
-import { isDemoMode, showDemoToast } from '../guards/appMode';
+import { isDemoMode } from '../guards/appMode';
 
 export enum StorageScope {
   SCHOOL_DATA = 'SCHOOL_DATA',
@@ -47,7 +47,7 @@ const buildKey = (scope: StorageScope, key: string, namespace?: string) => {
 
 class LocalStorageDriver implements StorageDriver {
   load<T>(scope: StorageScope, key: string, fallback: T, namespace?: string): T {
-    if (typeof window === 'undefined') return fallback;
+    if (isDemoMode() || typeof window === 'undefined') return fallback;
     const { primary, legacy } = buildKey(scope, key, namespace);
     const raw = window.localStorage.getItem(primary) ?? window.localStorage.getItem(legacy);
     if (!raw) return fallback;
@@ -59,6 +59,7 @@ class LocalStorageDriver implements StorageDriver {
   }
 
   save(scope: StorageScope, key: string, value: unknown, namespace?: string): boolean {
+    if (isDemoMode()) return true;
     if (typeof window === 'undefined') return false;
     const serialized = stringifyValue(value);
     if (!serialized || !isWithinLimit(serialized)) return false;
@@ -72,14 +73,14 @@ class LocalStorageDriver implements StorageDriver {
   }
 
   remove(scope: StorageScope, key: string, namespace?: string): void {
-    if (typeof window === 'undefined') return;
+    if (isDemoMode() || typeof window === 'undefined') return;
     const { primary, legacy } = buildKey(scope, key, namespace);
     window.localStorage.removeItem(primary);
     window.localStorage.removeItem(legacy);
   }
 
   clearScope(scope: StorageScope, namespace?: string): void {
-    if (typeof window === 'undefined') return;
+    if (isDemoMode() || typeof window === 'undefined') return;
     const prefix = `${scope}__`;
     Object.keys(window.localStorage)
       .filter((k) => k.startsWith(prefix) && (!namespace || k.endsWith(`__${namespace}`)))

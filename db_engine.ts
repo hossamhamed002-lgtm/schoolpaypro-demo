@@ -1,5 +1,5 @@
-import { isDemoMode, showDemoToast } from './src/guards/appMode';
-import { clearScope, load as loadData, save as saveData, StorageScope } from './src/storage/dataLayer';
+import { isDemoMode } from './src/guards/appMode';
+import { load as loadData, save as saveData, StorageScope } from './src/storage/dataLayer';
 
 // المفتاح الثابت والنهائي - لن يتغير أبداً لضمان الاستقرار
 export const DB_KEY = 'EDULOGIC_ULTRA_PERSISTENT_DB';
@@ -7,34 +7,6 @@ const UID_MAP_KEY = 'SCHOOL_UID_MAP_V1';
 
 const buildScopedKey = (key: string, namespace?: string) =>
   namespace ? `${key}__${namespace}` : key;
-const DEMO_NAMESPACE = 'DEMO_DB_V1';
-const DEMO_SESSION_KEY = 'DEMO_SESSION_ID';
-const DEMO_EXPIRES_KEY = 'DEMO_EXPIRES_AT';
-const DEMO_TTL_MS = 24 * 60 * 60 * 1000;
-
-const ensureDemoNamespace = () => {
-  if (!isDemoMode()) return null;
-  try {
-    const storage = localStorage;
-    const now = Date.now();
-    const storedNs = storage.getItem(DEMO_SESSION_KEY);
-    const storedExp = Number(storage.getItem(DEMO_EXPIRES_KEY) || 0);
-    const expired = !storedNs || !storedExp || storedExp < now;
-    if (expired) {
-      if (storedNs) {
-        clearScope(StorageScope.SCHOOL_DATA, storedNs);
-        clearScope(StorageScope.SETTINGS, storedNs);
-      }
-      const session = `${DEMO_NAMESPACE}_${Math.random().toString(36).slice(2, 8)}_${Date.now()}`;
-      storage.setItem(DEMO_SESSION_KEY, session);
-      storage.setItem(DEMO_EXPIRES_KEY, (now + DEMO_TTL_MS).toString());
-      return session;
-    }
-    return storedNs;
-  } catch {
-    return DEMO_NAMESPACE;
-  }
-};
 
 // البحث في كافة المفاتيح التي قد تكون البيانات مخزنة بها من إصدارات سابقة
 const SEARCH_KEYS = [
@@ -83,13 +55,13 @@ const getUidForNamespace = (code?: string): string | null => {
 };
 
 export const saveToStorage = (data: any, namespace?: string) => {
-  const scopedNamespace = isDemoMode() ? ensureDemoNamespace() || DEMO_NAMESPACE : namespace;
+  if (isDemoMode()) return true;
   try {
-    const scopedKey = buildScopedKey(DB_KEY, scopedNamespace);
+    const scopedKey = buildScopedKey(DB_KEY, namespace);
     const saved = saveData(StorageScope.SCHOOL_DATA, scopedKey, data);
     if (saved) {
       const serializedData = typeof data === 'string' ? data : JSON.stringify(data);
-      sessionStorage.setItem(buildScopedKey(DB_KEY + '_SESSION_BACKUP', scopedNamespace), serializedData);
+      sessionStorage.setItem(buildScopedKey(DB_KEY + '_SESSION_BACKUP', namespace), serializedData);
       const uid = getUidForNamespace(namespace);
       if (uid) {
         const uidKey = buildScopedKey(DB_KEY, uid);
@@ -106,6 +78,7 @@ export const saveToStorage = (data: any, namespace?: string) => {
 
 export const loadFromStorageKey = <T>(key: string, fallback: T, namespace?: string): T =>
   (() => {
+    if (isDemoMode()) return fallback;
     const uid = getUidForNamespace(namespace);
     if (uid) {
       const uidScoped = loadData<T | null>(StorageScope.SCHOOL_DATA, buildScopedKey(key, uid), null);
@@ -115,9 +88,9 @@ export const loadFromStorageKey = <T>(key: string, fallback: T, namespace?: stri
   })();
 
 export const saveToStorageKey = (key: string, data: unknown, namespace?: string) => {
-  const scopedNamespace = isDemoMode() ? ensureDemoNamespace() || DEMO_NAMESPACE : namespace;
+  if (isDemoMode()) return true;
   try {
-    saveData(StorageScope.SCHOOL_DATA, buildScopedKey(key, scopedNamespace), data);
+    saveData(StorageScope.SCHOOL_DATA, buildScopedKey(key, namespace), data);
     const uid = getUidForNamespace(namespace);
     if (uid) {
       saveData(StorageScope.SCHOOL_DATA, buildScopedKey(key, uid), data);
@@ -128,8 +101,8 @@ export const saveToStorageKey = (key: string, data: unknown, namespace?: string)
 };
 
 export const loadFromStorage = (initialState: any, namespace?: string) => {
-  const scopedNamespace = isDemoMode() ? ensureDemoNamespace() || DEMO_NAMESPACE : namespace;
-  const scopedKey = buildScopedKey(DB_KEY, scopedNamespace);
+  if (isDemoMode()) return initialState;
+  const scopedKey = buildScopedKey(DB_KEY, namespace);
   const uid = getUidForNamespace(namespace);
 
   const tryLoad = (key: string, scope: string | undefined) =>
@@ -161,12 +134,12 @@ export const loadFromStorage = (initialState: any, namespace?: string) => {
   }
 
   if (!saved) {
-    saved = tryLoad(DB_KEY, scopedNamespace);
+    saved = tryLoad(DB_KEY, namespace);
   }
 
   if (!saved) {
     for (const key of SEARCH_KEYS) {
-      const legacy = tryLoad(key, scopedNamespace);
+      const legacy = tryLoad(key, namespace);
       if (legacy) {
         saved = legacy;
         saveData(StorageScope.SCHOOL_DATA, scopedKey, legacy);
@@ -176,7 +149,7 @@ export const loadFromStorage = (initialState: any, namespace?: string) => {
   }
 
   if (!saved) {
-    const backup = sessionStorage.getItem(buildScopedKey(DB_KEY + '_SESSION_BACKUP', scopedNamespace));
+    const backup = sessionStorage.getItem(buildScopedKey(DB_KEY + '_SESSION_BACKUP', namespace));
     if (backup) {
       try {
         saved = JSON.parse(backup);
@@ -202,11 +175,8 @@ export const getSchoolLogoByCode = (schoolCode: string) => {
   const school = scoped.schools?.[0];
   return school?.Logo || null;
 };
-
 export const exportDatabase = (data: any) => {
   if (isDemoMode()) {
-    console.info('[DEMO] Export blocked');
-    showDemoToast('نسخة تجريبية – لا يتم حفظ أو تصدير البيانات');
     return;
   }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -220,9 +190,7 @@ export const exportDatabase = (data: any) => {
 
 export const importDatabase = (file: File): Promise<any> => {
   if (isDemoMode()) {
-    console.info('[DEMO] Import blocked');
-    showDemoToast('نسخة تجريبية – لا يتم حفظ أو تصدير البيانات');
-    return Promise.reject('الاستعادة متاحة في النسخة الكاملة فقط');
+    return Promise.resolve({});
   }
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

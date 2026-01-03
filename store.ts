@@ -13,8 +13,7 @@ import { load as loadData, save as saveData, remove as removeData, StorageScope 
 import { setRedistributingStudentsFlag } from './services/redistributionGuard';
 import { enforceLicense } from './license/licenseGuard';
 import { LicenseEnforcementResult } from './license/types';
-import { isDemoMode as isDemo, showDemoToast } from './src/guards/appMode';
-import { demoData, DEMO_SCHOOL_CODE, DEMO_YEAR_ID } from './src/demo/demoData';
+import { isDemoMode as isDemo } from './src/guards/appMode';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:4100';
 const DISABLE_LICENSE_CHECK = false;
@@ -325,10 +324,26 @@ export const INITIAL_STATE = {
   reportConfigs: []
 };
 
+export const EMPTY_INITIAL_STATE = {
+  schools: [],
+  students: [],
+  employees: [],
+  receipts: [],
+  classes: [],
+  grades: [],
+  stages: [],
+  users: [],
+  years: []
+};
+
+const DEMO_SCHOOL_CODE = 'DEMO';
+
+const cloneEmptyState = () => JSON.parse(JSON.stringify({ ...INITIAL_STATE, ...EMPTY_INITIAL_STATE }));
+
 export const useStore = () => {
   const demoMode = isDemo();
   const [lang, setLang] = useState<'ar' | 'en'>(() => demoMode ? 'ar' : readSetting(LANG_KEY, 'ar'));
-  const [schoolCode, setSchoolCode] = useState(() => demoMode ? DEMO_SCHOOL_CODE : readSetting(SCHOOL_CODE_KEY, ''));
+  const [schoolCode, setSchoolCode] = useState(() => demoMode ? '' : readSetting(SCHOOL_CODE_KEY, ''));
   const [programmerContext, setProgrammerContext] = useState(() => demoMode ? '' : readSetting(PROGRAMMER_CONTEXT_KEY, ''));
 
 const getYearKey = (code: string) => `${YEAR_KEY}__${code}`;
@@ -576,7 +591,7 @@ const describeLicenseError = (result: LicenseEnforcementResult | null, lang: 'ar
     };
   };
 
-  const [db, setDb] = useState(INITIAL_STATE);
+  const [db, setDb] = useState(() => demoMode ? cloneEmptyState() : INITIAL_STATE);
   const [isSaved, setIsSaved] = useState(true);
   const [isRedistributingStudents, setIsRedistributingStudents] = useState(false);
   const [workingYearId, setWorkingYearId] = useState<string>('');
@@ -591,17 +606,14 @@ const describeLicenseError = (result: LicenseEnforcementResult | null, lang: 'ar
 
   useEffect(() => {
     if (demoMode) {
-      if (!db.schools.length) {
-        const yearId = DEMO_YEAR_ID || demoData.years.find((y: any) => y.Is_Active)?.Year_ID || demoData.years?.[0]?.Year_ID || '';
-        const hydrated = ensureAcademicYearIds(demoData, yearId);
-        setDb(hydrated);
-        setWorkingYearId(yearId);
-        setActiveSchoolCode(DEMO_SCHOOL_CODE);
-        setSchoolCode(DEMO_SCHOOL_CODE);
-        setStorageEnabled(false);
-        setIsSaved(true);
-        setPendingOtp(null);
-      }
+      setDb(cloneEmptyState());
+      setWorkingYearId('');
+      setActiveSchoolCode('');
+      setSchoolCode('');
+      setStorageEnabled(false);
+      setIsSaved(true);
+      setPendingOtp(null);
+      setCurrentUser(null);
       return;
     }
     try {
@@ -628,7 +640,7 @@ const describeLicenseError = (result: LicenseEnforcementResult | null, lang: 'ar
   }, [demoMode]);
 
   const resetStoreStateForSchoolSwitch = () => {
-    setDb(INITIAL_STATE);
+    setDb(demoMode ? cloneEmptyState() : INITIAL_STATE);
     setWorkingYearId('');
     setActiveSchoolCode('');
     setCurrentUser(null);
@@ -931,23 +943,40 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
   };
 
   const hydrateDemoSnapshot = () => {
-    const yearId = DEMO_YEAR_ID || demoData.years.find((y: any) => y.Is_Active)?.Year_ID || demoData.years?.[0]?.Year_ID || '';
-    const hydrated = ensureAcademicYearIds(demoData, yearId);
-    setDb(hydrated);
-    setWorkingYearId(yearId);
-    setActiveSchoolCode(DEMO_SCHOOL_CODE);
-    setStorageEnabled(true);
-    setIsSaved(true);
-    setLicenseGate({ allowed: true, status: 'valid', reason: 'demo_mode', bypassed: true } as LicenseEnforcementResult);
-    return hydrated;
+    const emptyDb = cloneEmptyState();
+    return emptyDb;
   };
 
   const loginAsDemoSchool = () => {
-    const hydrated = hydrateDemoSnapshot();
-    const demoUser = hydrated.users?.[0] || null;
+    const base = hydrateDemoSnapshot();
+    const demoSchool = {
+      School_ID: 'SCH-DEMO',
+      Name: 'Demo School',
+      School_Code: DEMO_SCHOOL_CODE,
+      Allowed_Modules: defaultSchoolModules()
+    };
+    const demoUser = {
+      User_ID: 'USR-DEMO-ADMIN',
+      Username: 'demo_admin',
+      Password_Hash: 'demo',
+      Role: UserRole.ADMIN,
+      Is_Active: true,
+      Permissions: defaultSchoolModules()
+    };
+    const nextDb = {
+      ...base,
+      schools: [demoSchool],
+      users: [demoUser]
+    };
+    setDb(nextDb);
+    setWorkingYearId('');
+    setActiveSchoolCode(DEMO_SCHOOL_CODE);
+    setSchoolCode(DEMO_SCHOOL_CODE);
+    setStorageEnabled(false);
     setCurrentUser(demoUser);
     setPendingOtp(null);
-    setProgrammerContext('');
+    setIsSaved(true);
+    setLicenseGate({ allowed: true, status: 'valid', reason: 'demo_mode', bypassed: true } as LicenseEnforcementResult);
     return { ok: true };
   };
 
