@@ -1,49 +1,76 @@
 // src/guards/appMode.ts
 
-export type AppMode = 'desktop' | 'demo';
+let _cachedDemoMode: boolean | null = null;
 
-let cachedMode: AppMode | null = null;
+/* -------------------------------------------
+   Demo Mode Detection
+-------------------------------------------- */
 
 export function isDemoMode(): boolean {
-  return detectMode() === 'demo';
-}
+  if (_cachedDemoMode !== null) return _cachedDemoMode;
 
-export function detectMode(): AppMode {
-  if (cachedMode) return cachedMode;
-
-  // ✅ Safe default
-  let mode: AppMode = 'desktop';
-
-  // 1️⃣ ENV (Vite / Vercel)
   try {
-    // Rollup-safe access
-    const meta = typeof import !== 'undefined' ? import.meta : null;
-    const env = meta && (meta as any).env;
-    if (env && env.VITE_APP_MODE === 'demo') {
-      mode = 'demo';
+    const meta: any =
+      typeof import.meta !== 'undefined' ? import.meta : null;
+
+    const env = meta && meta.env ? meta.env : {};
+
+    if (env.VITE_APP_MODE === 'demo') {
+      _cachedDemoMode = true;
+      return true;
     }
   } catch {
-    /* ignore */
+    // ignore
   }
 
-  // 2️⃣ Hostname check (ONLY inside function)
-  if (mode !== 'demo') {
-    try {
-      if (typeof window !== 'undefined') {
-        const host = window.location.hostname;
-        if (
-          host.includes('vercel.app') ||
-          host.includes('github.io') ||
-          host.includes('demo')
-        ) {
-          mode = 'demo';
-        }
-      }
-    } catch {
-      /* ignore */
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname.toLowerCase();
+    if (
+      host.includes('vercel.app') ||
+      host.includes('demo') ||
+      host.includes('preview')
+    ) {
+      _cachedDemoMode = true;
+      return true;
     }
   }
 
-  cachedMode = mode;
-  return mode;
+  _cachedDemoMode = false;
+  return false;
 }
+
+/* -------------------------------------------
+   Demo Toast
+-------------------------------------------- */
+
+let demoToastShown = false;
+
+export function showDemoToast(message?: string) {
+  if (demoToastShown) return;
+  demoToastShown = true;
+
+  const text =
+    message ||
+    '⚠️ وضع العرض التجريبي (Demo): لا يمكن حفظ أو تعديل البيانات';
+
+  if (typeof window !== 'undefined') {
+    alert(text);
+  }
+}
+
+/* -------------------------------------------
+   Demo Persistence Guard (المهم)
+-------------------------------------------- */
+
+export function applyDemoPersistenceGuards() {
+  if (!isDemoMode()) return;
+
+  console.info('[DEMO MODE] Persistence guards enabled');
+
+  // هنا لاحقًا:
+  // - تعطيل save
+  // - تعطيل delete
+  // - تعطيل export
+  // (الربط تم بالفعل في dataLayer / store)
+}
+
