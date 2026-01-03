@@ -23,8 +23,9 @@ import AdminLicensesPage from './src/admin/AdminLicensesPage';
 import { BUY_URL } from './src/config/links';
 import { getLastBindingStatus } from './license/licenseGuard';
 import type { LicenseBindingStatus } from './src/license/hwidBinding';
-import LicenseActivationScreen from './components/license/LicenseActivationScreen';
+import LicenseActivationFullScreen from './components/license/LicenseActivationFullScreen';
 import { rememberActivationIntent, hasActivationBeenShown } from './src/guards/activationGuard';
+import { runReleaseVerification } from './src/releaseVerifier';
 
 type TabId =
   | 'dashboard'
@@ -39,6 +40,14 @@ type TabId =
   | 'programmer';
 
 const App: React.FC = () => {
+  const programmerHint = (() => {
+    try {
+      return !!localStorage.getItem('EDULOGIC_PROGRAMMER_USER_V1');
+    } catch {
+      return false;
+    }
+  })();
+  const releaseCheck = React.useMemo(() => runReleaseVerification({ programmerHint, allowTrials: false }), [programmerHint]);
   const store = useStore();
   const { t } = store;
   const [bindingStatus, setBindingStatus] = useState<LicenseBindingStatus | null>(null);
@@ -58,7 +67,7 @@ const App: React.FC = () => {
   }, [enableLazyFonts, store.currentUser]);
 
   React.useEffect(() => {
-    if (isDemoMode()) {
+    if ((import.meta as any)?.env?.DEV && isDemoMode()) {
       console.info('🧪 Demo Mode Active');
     }
   }, []);
@@ -111,7 +120,7 @@ const App: React.FC = () => {
         || store.licenseStatus.allowed === false
       )
       && ['expired', 'hwid_mismatch', 'missing_license', 'missing'].includes(String(activationReason))
-    );
+    ) || (!!releaseCheck?.fatal && !store.isProgrammer);
 
   const DemoBadge = () => (
     isDemoMode() ? (
@@ -272,10 +281,10 @@ const App: React.FC = () => {
     return <AdminLicensesPage />;
   }
 
-  if (shouldShowActivation) {
+  if (!store.currentUser && shouldShowActivation) {
     return (
       <>
-        <LicenseActivationScreen store={store} />
+        <LicenseActivationFullScreen store={store} />
         <DemoBadge />
         <HwidWarning />
         <GraceBanner />

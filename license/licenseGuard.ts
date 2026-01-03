@@ -4,6 +4,7 @@ import { loadLicense, saveLicense, licenseExists } from './licenseStorage';
 import { LicenseEnforcementResult, LicensePayload, LicenseValidationResult } from './types';
 import getHWID from './hwid';
 import { checkHwidBinding, LicenseBindingStatus } from '../src/license/hwidBinding';
+import { validateInstallIntegrity, ensureInstallFingerprint } from './installFingerprint';
 
 type EnforcementOptions = {
   expectedSchoolUid?: string;
@@ -125,7 +126,8 @@ export const enforceLicense = (options?: EnforcementOptions): LicenseEnforcement
   const hwid = getHWID();
   const validation = validateLicense(options?.expectedSchoolUid);
 
-  if (validation.status === 'missing' && options?.allowTrialFallback && !hasTrialBeenUsed(hwid)) {
+  const allowTrials = options?.allowTrialFallback && (isDemoMode() || (import.meta as any)?.env?.DEV);
+  if (validation.status === 'missing' && allowTrials && !hasTrialBeenUsed(hwid)) {
     if (!options?.expectedSchoolUid) {
       return { ...validation, allowed: false, reason: 'missing_school_uid_for_trial' };
     }
@@ -215,7 +217,22 @@ export const enforceLicenseOrRedirect = (context?: EnforcementContext): Enforcem
   if (context?.isProgrammer) return 'ALLOW';
   if (context?.isDemo || isDemoMode()) return 'ALLOW';
 
+  const currentIfp = ensureInstallFingerprint();
   const license = loadLicense();
+
+  if (license) {
+    const integrity = validateInstallIntegrity(license.install_fingerprint || (license as any).ifp || null);
+    if (integrity === 'CLONE_DETECTED') return 'HWID_MISMATCH';
+    if (integrity === 'RESET_DETECTED') return 'LICENSE_EXPIRED';
+    if (license.install_fingerprint && license.install_fingerprint !== currentIfp) {
+      return 'LICENSE_EXPIRED';
+    }
+  } else {
+    const integrity = validateInstallIntegrity(null);
+    if (integrity === 'CLONE_DETECTED') return 'HWID_MISMATCH';
+    if (integrity === 'RESET_DETECTED') return 'LICENSE_EXPIRED';
+  }
+
   if (!license) return 'LICENSE_EXPIRED';
 
   if (context?.expectedSchoolUid && license.school_uid !== context.expectedSchoolUid) {

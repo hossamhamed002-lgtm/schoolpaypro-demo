@@ -3,6 +3,7 @@ export type LicenseType = 'trial' | 'paid';
 export interface LicensePayload {
   school_uid: string;
   device_fingerprint: string;
+  install_fingerprint?: string;
   license_type: LicenseType;
   start_date: string;
   end_date: string;

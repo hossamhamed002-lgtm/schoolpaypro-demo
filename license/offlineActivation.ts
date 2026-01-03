@@ -2,6 +2,7 @@ import { LicensePayload, UnsignedLicensePayload } from './types';
 import { signLicensePayload } from './licenseFactory';
 import { saveLicense, loadLicense } from './licenseStorage';
 import getHWID from './hwid';
+import { ensureInstallFingerprint } from './installFingerprint';
 
 export type ActivationErrorReason =
   | 'invalid_signature'
@@ -61,6 +62,7 @@ export const activateOfflineLicense = (
     return { ok: false, reason: 'trial_not_renewable' };
   }
   const hwid = getHWID();
+  const ifp = ensureInstallFingerprint();
   if (!payload.school_uid || payload.school_uid !== expectedSchoolUid) {
     return { ok: false, reason: 'school_mismatch' };
   }
@@ -83,6 +85,9 @@ export const activateOfflineLicense = (
     if (existing.device_fingerprint && existing.device_fingerprint !== hwid) {
       return { ok: false, reason: 'hwid_mismatch' };
     }
+    if (existing.install_fingerprint && existing.install_fingerprint !== ifp) {
+      return { ok: false, reason: 'hwid_mismatch' };
+    }
   }
 
   const unbound = !payload.device_fingerprint;
@@ -91,6 +96,7 @@ export const activateOfflineLicense = (
       const unsigned: UnsignedLicensePayload = {
         ...payload,
         device_fingerprint: hwid,
+        install_fingerprint: ifp,
         last_verified_at: payload.last_verified_at || new Date().toISOString(),
         activated_at: new Date().toISOString(),
         expires_at: payload.end_date,
@@ -113,6 +119,9 @@ export const activateOfflineLicense = (
   }
   if (!boundPayload.status) {
     boundPayload.status = 'activated';
+  }
+  if (!boundPayload.install_fingerprint) {
+    boundPayload.install_fingerprint = ifp;
   }
 
   const saved = saveLicense(boundPayload, { allowUpdate: true });

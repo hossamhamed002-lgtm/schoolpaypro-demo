@@ -228,6 +228,7 @@ const ensureExamControlReports = (reportConfigs: any[]) => {
 
 const getItemYearId = (item: { Academic_Year_ID?: string; Year_ID?: string } | null | undefined) =>
   item?.Academic_Year_ID || item?.Year_ID || '';
+const IS_DEV = !!((import.meta as any)?.env?.DEV);
 
 const ensureAcademicYearIds = (db: any, fallbackYearId: string) => {
   const resolvedYearId = fallbackYearId || '';
@@ -414,7 +415,7 @@ function seedProgrammerSnapshotIfMissing() {
 
   localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
 
-  console.info('[PROGRAMMER] Seeded system programmer snapshot');
+  if (IS_DEV) console.info('[PROGRAMMER] Seeded system programmer snapshot');
 }
 
 const ensureSchoolUidBinding = (dbSnapshot: any, scopedCode: string): { ok: boolean; db?: any; uid?: string; error?: string } => {
@@ -464,17 +465,17 @@ const warnIdentityInconsistencies = (code: string, snapshot: any, uidMap: Record
 
   // 1) single code → multiple UIDs (detected when snapshotUid differs from mapping)
   if (existingUid && snapshotUid && existingUid !== snapshotUid) {
-    console.warn('[SCHOOLS][WARN] Code mapped to multiple UIDs', { code: normalizedCode, mapUid: existingUid, snapshotUid });
+    if (IS_DEV) console.warn('[SCHOOLS][WARN] Code mapped to multiple UIDs', { code: normalizedCode, mapUid: existingUid, snapshotUid });
   }
 
   // 2) snapshot missing UID
   if (!snapshotUid) {
-    console.warn('[SCHOOLS][WARN] Snapshot missing school_uid', { code: normalizedCode });
+    if (IS_DEV) console.warn('[SCHOOLS][WARN] Snapshot missing school_uid', { code: normalizedCode });
   }
 
   // 3) storage keys without mapping (detected if snapshot exists but map lacks entry)
   if (snapshot?.schools?.length && !uidMap[normalizedCode]) {
-    console.warn('[SCHOOLS][WARN] Storage exists for code without UID mapping', { code: normalizedCode });
+    if (IS_DEV) console.warn('[SCHOOLS][WARN] Storage exists for code without UID mapping', { code: normalizedCode });
   }
 };
 
@@ -600,7 +601,7 @@ const describeSoftBlock = (reason: string | null | undefined, lang: 'ar' | 'en')
         }]
       };
     } else {
-      console.warn('[SCHOOLS] No school found for code, auto-provision disabled.', scopedCode);
+      if (IS_DEV) console.warn('[SCHOOLS] No school found for code, auto-provision disabled.', scopedCode);
       base = {
         ...(base || INITIAL_STATE),
         schools: []
@@ -679,7 +680,7 @@ const describeSoftBlock = (reason: string | null | undefined, lang: 'ar' | 'en')
         setCurrentUser(user);
       }
     } catch (e) {
-      console.error('[BOOTSTRAP][FATAL]', e);
+      if (IS_DEV) console.error('[BOOTSTRAP][FATAL]', e);
     }
   }, [demoMode]);
 
@@ -699,27 +700,27 @@ const describeSoftBlock = (reason: string | null | undefined, lang: 'ar' | 'en')
   const rebindCurrentSchoolToUID = () => {
     if (demoMode) return false;
     if (!activeSchoolCode || !db?.schools?.[0]) {
-      console.warn('[SCHOOLS][REBIND] Missing active school or DB');
+      if (IS_DEV) console.warn('[SCHOOLS][REBIND] Missing active school or DB');
       return false;
     }
     const scopedCode = normalizeSchoolCode(activeSchoolCode);
     const uid = readUidMap()[scopedCode];
     const snapshotUid = db.schools[0].school_uid;
     if (!uid) {
-      console.warn('[SCHOOLS][REBIND] No UID mapping for code', scopedCode);
+      if (IS_DEV) console.warn('[SCHOOLS][REBIND] No UID mapping for code', scopedCode);
       return false;
     }
     if (!snapshotUid) {
-      console.warn('[SCHOOLS][REBIND] Snapshot missing school_uid', scopedCode);
+      if (IS_DEV) console.warn('[SCHOOLS][REBIND] Snapshot missing school_uid', scopedCode);
       return false;
     }
     if (snapshotUid !== uid) {
-      console.warn('[SCHOOLS][REBIND] UID mismatch; aborting', { code: scopedCode, uid, snapshotUid });
+      if (IS_DEV) console.warn('[SCHOOLS][REBIND] UID mismatch; aborting', { code: scopedCode, uid, snapshotUid });
       return false;
     }
     const saved = saveToStorage(db, uid);
     if (saved) {
-      console.info('[SCHOOLS][REBIND] School data rebound to UID', { code: scopedCode, uid });
+      if (IS_DEV) console.info('[SCHOOLS][REBIND] School data rebound to UID', { code: scopedCode, uid });
       const { db: reloaded, yearId, scopedCode: resolved } = loadDbForSchool(scopedCode);
       setDb(reloaded);
       setWorkingYearId(yearId);
@@ -734,24 +735,24 @@ const describeSoftBlock = (reason: string | null | undefined, lang: 'ar' | 'en')
 const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     if (demoMode) return false;
     if (!programmerMode) {
-      console.warn('[SCHOOLS][REBIND] Programmer mode required');
+      if (IS_DEV) console.warn('[SCHOOLS][REBIND] Programmer mode required');
       return false;
     }
     resetStoreStateForSchoolSwitch();
     const scopedCode = normalizeSchoolCode(schoolCode);
     if (!scopedCode || !targetUID) {
-      console.warn('[SCHOOLS][REBIND] Invalid code or UID');
+      if (IS_DEV) console.warn('[SCHOOLS][REBIND] Invalid code or UID');
       return false;
     }
     const uidMap = readUidMap();
     const uidData = loadFromStorage(INITIAL_STATE, targetUID);
     if (!uidData?.schools?.length) {
-      console.warn('[SCHOOLS][REBIND] Target UID has no direct data; proceeding with mapping only', { uid: targetUID });
+      if (IS_DEV) console.warn('[SCHOOLS][REBIND] Target UID has no direct data; proceeding with mapping only', { uid: targetUID });
     }
     const nextMap = { ...uidMap, [scopedCode]: targetUID };
     try {
       localStorage.setItem('SCHOOL_UID_MAP_V1', JSON.stringify(nextMap));
-      console.info('[SCHOOLS][REBIND] schoolCode rebound to UID', { code: scopedCode, uid: targetUID });
+      if (IS_DEV) console.info('[SCHOOLS][REBIND] schoolCode rebound to UID', { code: scopedCode, uid: targetUID });
       return true;
     } catch {
       return false;
@@ -839,7 +840,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
           setDb((prev) => ({ ...prev, employees: data }));
         }
       } catch (err) {
-        console.warn('[API][WARN] employees fetch failed; using local copy.', err);
+        if (IS_DEV) console.warn('[API][WARN] employees fetch failed; using local copy.', err);
       }
     })();
     return () => {
@@ -857,7 +858,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
           body: JSON.stringify(db.employees || [])
         });
       } catch (err) {
-        console.warn('[API][WARN] employees persist failed.', err);
+        if (IS_DEV) console.warn('[API][WARN] employees persist failed.', err);
       }
     })();
   }, [db.employees, activeSchoolCode, storageEnabled, hrSyncEnabled]);
@@ -1066,7 +1067,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     const { db: nextDb, yearId, scopedCode: resolved } = loadDbForSchool(scopedCode);
     const ensured = ensureSchoolUidBinding(nextDb, scopedCode);
     if (!ensured.ok) {
-      console.error('[SCHOOLS] UID mismatch, aborting bind', { code: scopedCode });
+      if (IS_DEV) console.error('[SCHOOLS] UID mismatch, aborting bind', { code: scopedCode });
       return;
     }
     setDb(ensured.db);
@@ -1086,7 +1087,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     const { db: nextDb, yearId } = loadDbForSchool(scopedCode);
     const ensured = ensureSchoolUidBinding(nextDb, scopedCode);
     if (!ensured.ok) {
-      console.error('[SCHOOLS] UID mismatch, aborting bind', { code: scopedCode });
+      if (IS_DEV) console.error('[SCHOOLS] UID mismatch, aborting bind', { code: scopedCode });
       return { ok: false, error: lang === 'ar' ? 'فشل تحميل المدرسة' : 'Failed to load school' };
     }
     if (!ensured.db?.schools?.length) {
@@ -1157,7 +1158,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     const scopedCode = PROGRAMMER_CODE;
     const { db: nextDb, yearId } = loadDbForSchool(scopedCode);
     if (!nextDb?.schools?.length) {
-      console.error('[SCHOOLS] No programmer school snapshot found');
+      if (IS_DEV) console.error('[SCHOOLS] No programmer school snapshot found');
       return { ok: false, error: 'No programmer school snapshot' };
     }
     const licenseCheck = evaluateLicenseGate(nextDb.schools?.[0]?.school_uid);
@@ -1239,7 +1240,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     const { db: nextDb, yearId } = loadDbForSchool(scopedCode);
     const ensured = ensureSchoolUidBinding(nextDb, scopedCode);
     if (!ensured.ok) {
-      console.error('[SCHOOLS] UID mismatch, aborting bind', { code: scopedCode });
+      if (IS_DEV) console.error('[SCHOOLS] UID mismatch, aborting bind', { code: scopedCode });
       return { ok: false, error: lang === 'ar' ? 'فشل تحميل المدرسة' : 'Failed to load school' };
     }
     if (!nextDb?.schools?.length) {
@@ -1271,7 +1272,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     const scopedCode = PROGRAMMER_CODE;
     const { db: nextDb, yearId } = loadDbForSchool(scopedCode);
     if (!nextDb?.schools?.length) {
-      console.error('[SCHOOLS] No programmer school snapshot found');
+      if (IS_DEV) console.error('[SCHOOLS] No programmer school snapshot found');
       return;
     }
     setDb(nextDb);

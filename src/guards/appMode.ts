@@ -1,8 +1,15 @@
 let _cachedDemoMode: boolean | null = null;
 let _cachedDemoExpired: boolean | null = null;
+const IS_DEV = !!((import.meta as any)?.env?.DEV);
+const FINAL_LICENSE_LOCK = (import.meta as any)?.env?.VITE_FINAL_LICENSE_LOCK === 'true' || (import.meta as any)?.env?.VITE_FINAL_LICENSE_LOCK === true;
 
 export function isDemoMode(): boolean {
   if (_cachedDemoMode !== null) return _cachedDemoMode;
+
+  if (FINAL_LICENSE_LOCK) {
+    _cachedDemoMode = false;
+    return false;
+  }
 
   const envMode = ((import.meta as any)?.env?.VITE_APP_MODE || '').toString().toLowerCase();
   if (envMode === 'demo') {
@@ -11,6 +18,10 @@ export function isDemoMode(): boolean {
   }
 
   const host = typeof window !== 'undefined' && window.location ? window.location.hostname.toLowerCase() : '';
+  if (!host || host === 'localhost' || host.startsWith('127.') || host.startsWith('0.0.0.0')) {
+    _cachedDemoMode = false;
+    return false;
+  }
   if (host.includes('vercel.app') || host.includes('demo')) {
     _cachedDemoMode = true;
     return true;
@@ -30,7 +41,7 @@ export function showDemoToast(message?: string) {
     message ||
     '⚠️ وضع العرض التجريبي (Demo): لا يمكن حفظ أو تعديل البيانات';
 
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && IS_DEV) {
     alert(text);
   }
 }
