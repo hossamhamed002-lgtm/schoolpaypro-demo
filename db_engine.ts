@@ -1,4 +1,4 @@
-import { isDemoMode } from './src/guards/appMode';
+import { isDemoMode, showDemoToast } from './src/guards/appMode';
 import { clearScope, load as loadData, save as saveData, StorageScope } from './src/storage/dataLayer';
 
 // المفتاح الثابت والنهائي - لن يتغير أبداً لضمان الاستقرار
@@ -57,6 +57,7 @@ const getUidForNamespace = (code?: string): string | null => {
 export const saveToStorage = (data: any, namespace?: string) => {
   if (isDemoMode()) {
     console.info('[DEMO] Persistence blocked');
+    showDemoToast();
     return true;
   }
   try {
@@ -92,6 +93,7 @@ export const loadFromStorageKey = <T>(key: string, fallback: T, namespace?: stri
 export const saveToStorageKey = (key: string, data: unknown, namespace?: string) => {
   if (isDemoMode()) {
     console.info('[DEMO] Persistence blocked');
+    showDemoToast();
     return true;
   }
   try {
@@ -183,7 +185,7 @@ export const getSchoolLogoByCode = (schoolCode: string) => {
 export const exportDatabase = (data: any) => {
   if (isDemoMode()) {
     console.info('[DEMO] Export blocked');
-    alert('التصدير متاح في النسخة الكاملة فقط');
+    showDemoToast('هذه نسخة Demo – الرجاء التواصل للشراء');
     return;
   }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -198,6 +200,7 @@ export const exportDatabase = (data: any) => {
 export const importDatabase = (file: File): Promise<any> => {
   if (isDemoMode()) {
     console.info('[DEMO] Import blocked');
+    showDemoToast('هذه نسخة Demo – الرجاء التواصل للشراء');
     return Promise.reject('الاستعادة متاحة في النسخة الكاملة فقط');
   }
   return new Promise((resolve, reject) => {

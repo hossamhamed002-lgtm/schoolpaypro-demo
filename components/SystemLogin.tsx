@@ -7,6 +7,9 @@ import OtpPrompt from './security/OtpPrompt';
 import { getSecuritySettings } from '../security/securitySettings';
 import { isDemoMode } from '../src/guards/appMode';
 
+const BUY_URL = 'https://YOUR_DOMAIN_HERE/buy';
+const WHATSAPP_URL = 'https://wa.me/201XXXXXXXXX';
+
 interface SystemLoginProps {
   onLogin: (
     schoolCode: string,
@@ -43,6 +46,11 @@ const SystemLogin: React.FC<SystemLoginProps> = ({
   const otpSettings = getSecuritySettings();
   const PROGRAMMER_KEY = 'EDULOGIC_PROGRAMMER_CREDENTIALS_V1';
   const demoMode = isDemoMode();
+  const handleQuickFill = () => {
+    setSchoolCode('SCH-001');
+    setUsername('demo');
+    setPassword('demo');
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,11 +129,6 @@ const SystemLogin: React.FC<SystemLoginProps> = ({
     setOtpStep(null);
   };
 
-  const handleDemoLogin = () => {
-    onDemoLogin?.();
-    setError('');
-  };
-
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 relative overflow-hidden" dir="rtl">
       <div
@@ -133,6 +136,12 @@ const SystemLogin: React.FC<SystemLoginProps> = ({
         style={{ backgroundImage: `url(${eagleAiLogo})`, backgroundPosition: 'right 8% bottom 6%', backgroundSize: '38%' }}
       />
       <div className="bg-white/95 rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-gray-100 relative z-10">
+        {demoMode && (
+          <div className="bg-amber-100 text-amber-800 text-center text-xs font-black py-3 px-4 border-b border-amber-200">
+            <div className="text-sm font-black">نسخة تجريبية (Demo)</div>
+            <div className="text-[11px] font-bold">هذه النسخة للعرض فقط — لن يتم حفظ أي بيانات.</div>
+          </div>
+        )}
         <div className="bg-indigo-900 p-8 text-center text-white relative">
           <div className="flex items-center justify-center gap-3 mx-auto mb-4">
             <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center shadow-lg overflow-hidden">
@@ -152,16 +161,19 @@ const SystemLogin: React.FC<SystemLoginProps> = ({
           {demoMode && (
             <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-start">
               <div className="text-sm font-black text-amber-800 flex items-center gap-2">
-                <span>🟡 نسخة تجريبية – Demo Version</span>
+                <span>🟡 نسخة تجريبية (Demo)</span>
               </div>
-              <p className="text-xs font-bold text-amber-700 mt-1">البيانات غير محفوظة</p>
-              <button
-                type="button"
-                onClick={handleDemoLogin}
-                className="mt-3 w-full bg-indigo-600 text-white py-3 rounded-lg font-black hover:bg-indigo-700 transition flex items-center justify-center gap-2"
-              >
-                <LogIn size={18} /> دخول النسخة التجريبية
-              </button>
+              <p className="text-xs font-bold text-amber-700 mt-1">هذه النسخة للعرض فقط — لن يتم حفظ أي بيانات.</p>
+              <div className="mt-3 rounded-lg border border-amber-200 bg-white/70 p-3">
+                <div className="text-[12px] font-black text-amber-800 mb-2">بيانات دخول تجريبية</div>
+                <button
+                  type="button"
+                  onClick={handleQuickFill}
+                  className="px-4 py-2 rounded-lg bg-amber-600 text-white font-black text-xs hover:bg-amber-700 transition"
+                >
+                  تعبئة تلقائية
+                </button>
+              </div>
             </div>
           )}
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -217,6 +229,28 @@ const SystemLogin: React.FC<SystemLoginProps> = ({
             >
               <LogIn size={20} /> تسجيل الدخول
             </button>
+
+            {demoMode && (
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => window.open(BUY_URL, '_blank')}
+                  className="w-full bg-emerald-600 text-white py-3 rounded-lg font-black hover:bg-emerald-700 transition"
+                >
+                  اطلب النسخة الكاملة
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.open(WHATSAPP_URL, '_blank')}
+                  className="w-full bg-white text-emerald-700 border border-emerald-200 py-3 rounded-lg font-black hover:bg-emerald-50 transition"
+                >
+                  تواصل واتساب
+                </button>
+                <p className="text-[11px] font-bold text-slate-500 text-center">
+                  يمكنك تجربة الواجهة والتنقل، لكن الحفظ والتصدير معطّل في الديمو.
+                </p>
+              </div>
+            )}
           </form>
 
           <div className="mt-8 border-t border-slate-200 pt-4 text-center">

@@ -1,4 +1,4 @@
-import { isDemoMode } from '../guards/appMode';
+import { isDemoMode, showDemoToast } from '../guards/appMode';
 
 export enum StorageScope {
   SCHOOL_DATA = 'SCHOOL_DATA',
@@ -61,6 +61,7 @@ class LocalStorageDriver implements StorageDriver {
   save(scope: StorageScope, key: string, value: unknown, namespace?: string): boolean {
     if (isDemoMode()) {
       console.info('[DEMO] Persistence blocked');
+      showDemoToast();
       return true;
     }
     if (typeof window === 'undefined') return false;
@@ -78,6 +79,7 @@ class LocalStorageDriver implements StorageDriver {
   remove(scope: StorageScope, key: string, namespace?: string): void {
     if (isDemoMode()) {
       console.info('[DEMO] Remove blocked');
+      showDemoToast();
       return;
     }
     if (typeof window === 'undefined') return;
@@ -89,6 +91,7 @@ class LocalStorageDriver implements StorageDriver {
   clearScope(scope: StorageScope): void {
     if (isDemoMode()) {
       console.info('[DEMO] Clear blocked');
+      showDemoToast();
       return;
     }
     if (typeof window === 'undefined') return;

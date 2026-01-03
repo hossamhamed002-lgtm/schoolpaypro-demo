@@ -13,7 +13,7 @@ import { load as loadData, save as saveData, remove as removeData, StorageScope 
 import { setRedistributingStudentsFlag } from './services/redistributionGuard';
 import { enforceLicense } from './license/licenseGuard';
 import { LicenseEnforcementResult } from './license/types';
-import { isDemoMode as isDemo } from './src/guards/appMode';
+import { isDemoMode as isDemo, showDemoToast } from './src/guards/appMode';
 import { demoData, DEMO_SCHOOL_CODE, DEMO_YEAR_ID } from './src/demo/demoData';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:4100';
@@ -929,7 +929,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     if (!fn) return fn;
     if (!demoMode) return fn;
     return ((..._args: any[]) => {
-      alert(lang === 'ar' ? 'الإجراء متاح في النسخة الكاملة فقط' : 'Action available in full version only');
+      showDemoToast(lang === 'ar' ? 'هذه نسخة Demo – الرجاء التواصل للشراء' : 'Demo version – contact us to purchase');
       console.info('[DEMO] Destructive action blocked');
       return returnValue;
     }) as T;
