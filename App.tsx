@@ -20,6 +20,7 @@ import { setModuleActive } from './storageGate';
 import { isDemoMode } from './src/guards/appMode';
 import LandingPage from './src/landing/LandingPage';
 import AdminLicensesPage from './src/admin/AdminLicensesPage';
+import { BUY_URL } from './src/config/links';
 
 type TabId =
   | 'dashboard'
@@ -176,7 +177,7 @@ const App: React.FC = () => {
               <span>© {new Date().getFullYear()} Eagle AI — جميع الحقوق محفوظة</span>
               {isDemoMode() && (
                 <a
-                  href={BUY_URL}
+                  href={BUY_URL || 'https://wa.me/201094981227?text=مرحبا%20اريد%20شراء%20SchoolPay%20Pro'}
                   target="_blank"
                   rel="noreferrer"
                   className="text-indigo-600 hover:text-indigo-800 underline decoration-dotted"
@@ -193,7 +194,7 @@ const App: React.FC = () => {
       {isDemoMode() && (
         <a
           className="fixed bottom-4 right-4 z-50 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black shadow hover:bg-indigo-700"
-          href="https://wa.me/201094981227?text=%D9%85%D8%B1%D8%AD%D8%A8%D9%8B%D8%A7%D8%8C%20%D8%A3%D9%86%D8%A7%20%D9%85%D9%87%D8%AA%D9%85%20%D8%A8%D8%B4%D8%B1%D8%A7%D8%A1%20%D9%86%D8%B3%D8%AE%D8%A9%20SchoolPay%20Pro%20%D9%88%D8%B4%D8%A7%D9%87%D8%AF%D8%AA%20%D8%A7%D9%84%D9%86%D8%B3%D8%AE%D8%A9%20%D8%A7%D9%84%D8%AA%D8%AC%D8%B1%D9%8A%D8%A8%D9%8A%D8%A9."
+          href={BUY_URL || 'https://wa.me/201094981227?text=مرحبا%20اريد%20شراء%20SchoolPay%20Pro'}
           target="_blank"
           rel="noreferrer"
         >

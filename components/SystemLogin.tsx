@@ -6,8 +6,7 @@ import { getSchoolLogoByCode } from '../db_engine';
 import OtpPrompt from './security/OtpPrompt';
 import { getSecuritySettings } from '../security/securitySettings';
 import { isDemoMode } from '../src/guards/appMode';
-
-const BUY_URL = 'https://YOUR_DOMAIN_HERE/buy';
+import { BUY_URL } from '../src/config/links';
 const WHATSAPP_URL = 'https://wa.me/201XXXXXXXXX';
 
 interface SystemLoginProps {
@@ -262,7 +261,13 @@ const SystemLogin: React.FC<SystemLoginProps> = ({
               <div className="space-y-3">
                 <button
                   type="button"
-                  onClick={() => window.open(BUY_URL, '_blank')}
+                  onClick={() => {
+                    if (!BUY_URL) {
+                      console.warn('BUY_URL missing');
+                      return;
+                    }
+                    window.open(BUY_URL, '_blank');
+                  }}
                   className="w-full bg-emerald-600 text-white py-3 rounded-lg font-black hover:bg-emerald-700 transition"
                 >
                   اطلب النسخة الكاملة
