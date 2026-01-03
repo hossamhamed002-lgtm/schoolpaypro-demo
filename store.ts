@@ -13,7 +13,7 @@ import { load as loadData, save as saveData, remove as removeData, StorageScope 
 import { setRedistributingStudentsFlag } from './services/redistributionGuard';
 import { enforceLicense } from './license/licenseGuard';
 import { LicenseEnforcementResult } from './license/types';
-import { isDemoMode } from './src/guards/appMode';
+import { isDemoMode as isDemo } from './src/guards/appMode';
 import { demoData, DEMO_SCHOOL_CODE, DEMO_YEAR_ID } from './src/demo/demoData';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:4100';
@@ -326,7 +326,7 @@ export const INITIAL_STATE = {
 };
 
 export const useStore = () => {
-  const demoMode = isDemoMode();
+  const demoMode = isDemo();
   const [lang, setLang] = useState<'ar' | 'en'>(() => demoMode ? 'ar' : readSetting(LANG_KEY, 'ar'));
   const [schoolCode, setSchoolCode] = useState(() => demoMode ? DEMO_SCHOOL_CODE : readSetting(SCHOOL_CODE_KEY, ''));
   const [programmerContext, setProgrammerContext] = useState(() => demoMode ? '' : readSetting(PROGRAMMER_CONTEXT_KEY, ''));
@@ -591,15 +591,17 @@ const describeLicenseError = (result: LicenseEnforcementResult | null, lang: 'ar
 
   useEffect(() => {
     if (demoMode) {
-      const yearId = DEMO_YEAR_ID || demoData.years.find((y: any) => y.Is_Active)?.Year_ID || demoData.years?.[0]?.Year_ID || '';
-      const hydrated = ensureAcademicYearIds(demoData, yearId);
-      setDb(hydrated);
-      setWorkingYearId(yearId);
-      setActiveSchoolCode(DEMO_SCHOOL_CODE);
-      setSchoolCode(DEMO_SCHOOL_CODE);
-      setStorageEnabled(false);
-      setIsSaved(true);
-      setPendingOtp(null);
+      if (!db.schools.length) {
+        const yearId = DEMO_YEAR_ID || demoData.years.find((y: any) => y.Is_Active)?.Year_ID || demoData.years?.[0]?.Year_ID || '';
+        const hydrated = ensureAcademicYearIds(demoData, yearId);
+        setDb(hydrated);
+        setWorkingYearId(yearId);
+        setActiveSchoolCode(DEMO_SCHOOL_CODE);
+        setSchoolCode(DEMO_SCHOOL_CODE);
+        setStorageEnabled(false);
+        setIsSaved(true);
+        setPendingOtp(null);
+      }
       return;
     }
     try {
@@ -922,6 +924,16 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
   );
   const memberActions = getMemberActions(guardedSetDb, activeSchool, logAction, () => workingYearId);
   const financeActions = getFinanceActions(guardedSetDb, logAction, () => workingYearId);
+
+  const guardDestructive = <T extends (...args: any[]) => any>(fn: T | undefined, returnValue: any = false) => {
+    if (!fn) return fn;
+    if (!demoMode) return fn;
+    return ((..._args: any[]) => {
+      alert(lang === 'ar' ? 'الإجراء متاح في النسخة الكاملة فقط' : 'Action available in full version only');
+      console.info('[DEMO] Destructive action blocked');
+      return returnValue;
+    }) as T;
+  };
 
   const hydrateDemoSnapshot = () => {
     const yearId = DEMO_YEAR_ID || demoData.years.find((y: any) => y.Is_Active)?.Year_ID || demoData.years?.[0]?.Year_ID || '';
@@ -1259,6 +1271,12 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     allReceipts,
     allJournalEntries,
     ...academicActions, ...memberActions, ...financeActions,
+      deleteYear: guardDestructive(academicActions.deleteYear),
+      deleteStage: guardDestructive(academicActions.deleteStage),
+      deleteGrade: guardDestructive(academicActions.deleteGrade),
+      deleteClass: guardDestructive(academicActions.deleteClass),
+      deleteStudent: guardDestructive(memberActions.deleteStudent),
+      deleteStudentsBatch: guardDestructive(memberActions.deleteStudentsBatch),
       exportData: () => {
         if (demoMode) {
           alert(lang === 'ar' ? 'متاح في النسخة الكاملة فقط' : 'Available in the full version only');

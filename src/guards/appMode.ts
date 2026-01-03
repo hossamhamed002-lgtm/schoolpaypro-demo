@@ -1,8 +1,6 @@
-export const isDemoMode = () =>
-  import.meta.env.VITE_APP_MODE === 'demo';
+import { APP_MODE, isDemo as isDemoMode, isDesktop as isDesktopMode } from '../config/appMode';
 
-export const isDesktopMode = () =>
-  import.meta.env.VITE_APP_MODE === 'desktop';
+export { APP_MODE, isDemoMode, isDesktopMode };
 
 export const applyDemoPersistenceGuards = () => {
   if (!isDemoMode()) return;
