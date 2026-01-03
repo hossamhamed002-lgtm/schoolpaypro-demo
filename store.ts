@@ -868,19 +868,24 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
       setLicenseChecked(true);
       return;
     }
+    if (isProgrammer) {
+      setLicenseGate({ allowed: true, status: 'valid', reason: 'programmer_bypass', bypassed: true } as LicenseEnforcementResult);
+      setStorageEnabled(true);
+      setLicenseChecked(true);
+      return;
+    }
     if (!activeSchoolUid || licenseChecked) return;
     const guard = safeEnforceLicense({
       expectedSchoolUid: activeSchoolUid,
-      allowTrialFallback: true,
-      programmerBypass: programmerMode
+      allowTrialFallback: true
     });
     setLicenseGate(guard);
     setLicenseChecked(true);
-    if (currentUser && !guard.allowed) {
+    if (currentUser && !guard.allowed && !isProgrammer) {
       setCurrentUser(null);
       setStorageEnabled(false);
     }
-  }, [activeSchoolUid, programmerMode, licenseChecked, demoMode]);
+  }, [activeSchoolUid, programmerMode, licenseChecked, demoMode, isProgrammer, currentUser]);
 
   const activeYear = db.years.find((y: any) => y.Year_ID === workingYearId);
 
