@@ -24,8 +24,11 @@ import { BUY_URL } from './src/config/links';
 import { getLastBindingStatus } from './license/licenseGuard';
 import type { LicenseBindingStatus } from './src/license/hwidBinding';
 import LicenseActivationFullScreen from './components/license/LicenseActivationFullScreen';
+import LicenseStatusBadge from './components/license/LicenseStatusBadge';
 import { rememberActivationIntent, hasActivationBeenShown } from './src/guards/activationGuard';
 import { runReleaseVerification } from './src/releaseVerifier';
+import RenewalScreen from './components/license/RenewalScreen';
+import LicenseBlockedScreen from './components/license/LicenseBlockedScreen';
 
 type TabId =
   | 'dashboard'
@@ -47,6 +50,7 @@ const App: React.FC = () => {
       return false;
     }
   })();
+  const [renewalMode, setRenewalMode] = React.useState(false);
   const releaseCheck = React.useMemo(() => runReleaseVerification({ programmerHint, allowTrials: false }), [programmerHint]);
   const store = useStore();
   const { t } = store;
@@ -121,6 +125,13 @@ const App: React.FC = () => {
       )
       && ['expired', 'hwid_mismatch', 'missing_license', 'missing'].includes(String(activationReason))
     ) || (!!releaseCheck?.fatal && !store.isProgrammer);
+  const shouldShowRenewal = shouldShowActivation && (renewalMode || store.licenseStatus?.status === 'expired' || store.licenseStatus?.reason === 'expired');
+  const shouldHardBlock = !!(
+    store.licenseStatus
+    && store.licenseStatus.allowed === false
+    && !store.isProgrammer
+    && !isDemoMode()
+  );
 
   const DemoBadge = () => (
     isDemoMode() ? (
@@ -281,10 +292,20 @@ const App: React.FC = () => {
     return <AdminLicensesPage />;
   }
 
+  if (!store.currentUser && shouldHardBlock) {
+    return (
+      <LicenseBlockedScreen store={store} onRenew={() => setRenewalMode(true)} />
+    );
+  }
+
   if (!store.currentUser && shouldShowActivation) {
     return (
       <>
-        <LicenseActivationFullScreen store={store} />
+        {shouldShowRenewal ? (
+          <RenewalScreen store={store} onClose={() => setRenewalMode(false)} />
+        ) : (
+          <LicenseActivationFullScreen store={store} />
+        )}
         <DemoBadge />
         <HwidWarning />
         <GraceBanner />
@@ -342,6 +363,11 @@ const App: React.FC = () => {
           />
           <main className="flex-1 flex flex-col min-w-0 h-full">
             <Header store={store} />
+            <div className="no-print px-6 pt-2 flex justify-end">
+              {!store.isProgrammer && store.currentUser ? (
+                <LicenseStatusBadge status={store.licenseStatus} onRenew={() => setRenewalMode(true)} />
+              ) : null}
+            </div>
             <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
               <div className="max-w-[1600px] mx-auto">
                 {renderActiveScreen}

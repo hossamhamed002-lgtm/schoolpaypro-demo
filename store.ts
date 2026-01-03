@@ -804,7 +804,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
   }, [db.accounts, db.receipts, db.banks, db.suppliers, db.journalEntries, db.feeStructure, activeSchoolCode, storageEnabled, demoMode, isSoftBlocked]);
 
   useEffect(() => {
-    if (demoMode || isSoftBlocked) return;
+    if (demoMode || isSoftBlocked || (licenseGate && licenseGate.allowed === false && !licenseGate.bypassed)) return;
     const hmr = (import.meta as ImportMeta & { hot?: { dispose: (cb: () => void) => void } }).hot;
     if (!hmr) return;
     hmr.dispose(() => {
@@ -969,7 +969,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
   const journalEntries = allJournalEntries.filter((entry: any) => getItemYearId(entry) === workingYearId);
 
   const logAction = (data: any) => {
-    if (isSoftBlocked) return;
+    if (isSoftBlocked || (licenseGate && licenseGate.allowed === false && !licenseGate.bypassed)) return;
     const newLog: AuditEntry = {
       Log_ID: `LOG-${Date.now()}`,
       Timestamp: new Date().toLocaleString('sv-SE').slice(0, 16),
@@ -983,6 +983,9 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
   };
 
   const guardedSetDb = (updater: any) => {
+    if (licenseGate && licenseGate.allowed === false && !licenseGate.bypassed) {
+      return;
+    }
     if (isSoftBlocked) {
       alert(describeSoftBlock(softBlockReason, lang));
       return;
@@ -1016,6 +1019,9 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
 
   const guardDestructive = <T extends (...args: any[]) => any>(fn: T | undefined, returnValue: any = false) => {
     if (!fn) return fn;
+    if (licenseGate && licenseGate.allowed === false && !licenseGate.bypassed) {
+      return () => returnValue;
+    }
     return fn;
   };
 

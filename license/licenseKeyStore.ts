@@ -87,6 +87,7 @@ export const markLicenseKeyActivated = (
       activated_at: params.activated_at || new Date().toISOString(),
       bound_hwid: params.hwid,
       school_code: k.school_code,
+      school_uid: k.school_uid || params.school_uid,
       revoked: k.revoked
     };
     return updated;

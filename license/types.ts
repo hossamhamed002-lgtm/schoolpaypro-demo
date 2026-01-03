@@ -9,8 +9,10 @@ export interface LicensePayload {
   end_date: string;
   expires_at?: string;
   activated_at?: string;
+  renewed_at?: string;
   status?: 'activated' | 'issued';
   last_verified_at?: string;
+  last_checked_at?: string;
   signature: string;
 }
 
@@ -41,6 +43,7 @@ export interface LicenseKeyPayload {
   license_key: string;
   school_name: string;
   school_code?: string;
+  school_uid?: string;
   license_type: LicenseKeyType;
   duration_days: number;
   max_devices: number;

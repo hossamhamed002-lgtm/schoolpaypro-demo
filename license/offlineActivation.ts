@@ -16,6 +16,10 @@ export type OfflineActivationResult =
   | { ok: true; license: LicensePayload }
   | { ok: false; reason: ActivationErrorReason };
 
+export type RenewalResult =
+  | { ok: true; license: LicensePayload }
+  | { ok: false; reason: ActivationErrorReason };
+
 const decodeLicenseKey = (raw: string): LicensePayload | null => {
   if (!raw) return null;
   const trimmed = raw.trim();
@@ -130,4 +134,43 @@ export const activateOfflineLicense = (
   }
 
   return { ok: true, license: boundPayload };
+};
+
+export const renewOfflineLicense = (licenseKey: string, expectedSchoolUid: string): RenewalResult => {
+  if (isDemoMode()) return { ok: false, reason: 'invalid_signature' };
+  const existing = loadLicense();
+  if (!existing) return { ok: false, reason: 'expired_license' };
+
+  const hwid = getHWID();
+  const ifp = ensureInstallFingerprint();
+  const payload = decodeLicenseKey(licenseKey);
+  if (!payload) return { ok: false, reason: 'corrupt_license' };
+  if (!payload.signature || !verifySignature(payload)) return { ok: false, reason: 'invalid_signature' };
+  if (payload.license_type === 'trial') return { ok: false, reason: 'trial_not_renewable' };
+  if (payload.school_uid !== existing.school_uid || payload.school_uid !== expectedSchoolUid) {
+    return { ok: false, reason: 'school_mismatch' };
+  }
+  if (existing.device_fingerprint && existing.device_fingerprint !== hwid) {
+    return { ok: false, reason: 'hwid_mismatch' };
+  }
+  if (existing.install_fingerprint && existing.install_fingerprint !== ifp) {
+    return { ok: false, reason: 'hwid_mismatch' };
+  }
+  const expiresAt = payload.expires_at || payload.end_date;
+  if (!expiresAt) return { ok: false, reason: 'corrupt_license' };
+
+  const renewed: LicensePayload = {
+    ...existing,
+    ...payload,
+    device_fingerprint: existing.device_fingerprint || hwid,
+    install_fingerprint: existing.install_fingerprint || ifp,
+    activated_at: existing.activated_at || existing.start_date || new Date().toISOString(),
+    renewed_at: new Date().toISOString(),
+    expires_at: expiresAt,
+    end_date: payload.end_date || expiresAt,
+    status: 'activated'
+  };
+  const saved = saveLicense(renewed, { allowUpdate: true });
+  if (!saved) return { ok: false, reason: 'corrupt_license' };
+  return { ok: true, license: renewed };
 };

@@ -7,17 +7,16 @@ import {
 } from '../../license/licenseKeyStore';
 import { exportLicenseKeyPayload } from '../../license/licenseKeyFactory';
 import { LicenseKeyPayload, LicenseKeyStatus } from '../../license/types';
+import type { useStore as useStoreHook } from '../../store';
 
 type FormState = {
-  school_name: string;
-  school_code: string;
+  school_uid: string;
   duration_days: number;
   license_type: 'paid' | 'trial-extension';
 };
 
 const defaultForm: FormState = {
-  school_name: '',
-  school_code: '',
+  school_uid: '',
   duration_days: 30,
   license_type: 'paid'
 };
@@ -31,7 +30,8 @@ const statusLabel = (status: LicenseKeyStatus) => {
   }
 };
 
-const LicenseManager: React.FC = () => {
+const LicenseManager: React.FC<{ store: ReturnType<typeof useStoreHook> }> = ({ store }) => {
+  const schools = store?.schools || [];
   const [form, setForm] = useState<FormState>(defaultForm);
   const [keys, setKeys] = useState<LicenseKeyPayload[]>([]);
   const [message, setMessage] = useState<string>('');
@@ -48,10 +48,13 @@ const LicenseManager: React.FC = () => {
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.school_name || form.duration_days <= 0) return;
+    if (!form.school_uid || form.duration_days <= 0) return;
+    const selected = schools.find((s: any) => s.school_uid === form.school_uid);
+    if (!selected) return;
     const payload = createAndStoreLicenseKey({
-      school_name: form.school_name.trim(),
-      school_code: form.school_code.trim() || undefined,
+      school_name: selected.Name || selected.school_name || 'School',
+      school_code: selected.School_Code || selected.school_code || undefined,
+      school_uid: selected.school_uid,
       duration_days: Number(form.duration_days),
       license_type: form.license_type
     });
@@ -94,24 +97,21 @@ const LicenseManager: React.FC = () => {
           </div>
         </div>
         <form className="grid grid-cols-1 md:grid-cols-4 gap-4" onSubmit={handleCreate}>
-          <div className="md:col-span-2">
-            <label className="text-sm font-semibold text-slate-700 mb-1 block">School name</label>
-            <input
-              value={form.school_name}
-              onChange={(e) => onChange('school_name', e.target.value)}
+          <div className="md:col-span-3">
+            <label className="text-sm font-semibold text-slate-700 mb-1 block">Choose School</label>
+            <select
+              value={form.school_uid}
+              onChange={(e) => onChange('school_uid', e.target.value)}
               className="w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="School name"
               required
-            />
-          </div>
-          <div>
-            <label className="text-sm font-semibold text-slate-700 mb-1 block">School code (optional)</label>
-            <input
-              value={form.school_code}
-              onChange={(e) => onChange('school_code', e.target.value)}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="SCH-001"
-            />
+            >
+              <option value="">Select school</option>
+              {schools.map((s: any) => (
+                <option key={s.school_uid} value={s.school_uid}>
+                  {s.Name || s.school_name || 'School'} — {s.School_Code || s.school_code || 'N/A'}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="text-sm font-semibold text-slate-700 mb-1 block">Duration (days)</label>

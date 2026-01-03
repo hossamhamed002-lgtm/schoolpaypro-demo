@@ -26,6 +26,7 @@ const canonicalizeKey = (payload: Omit<LicenseKeyPayload, 'signature'>) => JSON.
   license_key: payload.license_key,
   school_name: payload.school_name,
   school_code: payload.school_code || '',
+  school_uid: payload.school_uid || '',
   license_type: payload.license_type,
   duration_days: payload.duration_days,
   max_devices: payload.max_devices,
@@ -52,6 +53,7 @@ const signKeyPayload = (payload: Omit<LicenseKeyPayload, 'signature'>) => {
 export type GenerateLicenseKeyInput = {
   school_name: string;
   school_code?: string;
+  school_uid?: string;
   license_type: LicenseKeyType;
   duration_days: number;
   max_devices?: number;
@@ -66,6 +68,7 @@ export const generateLicenseKey = (input: GenerateLicenseKeyInput): LicenseKeyPa
     license_key: licenseKey,
     school_name: input.school_name,
     school_code: input.school_code,
+    school_uid: input.school_uid,
     license_type: input.license_type,
     duration_days: Math.max(1, input.duration_days),
     max_devices: input.max_devices || 1,

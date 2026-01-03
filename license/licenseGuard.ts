@@ -1,5 +1,5 @@
 import { isDemoMode } from '../src/guards/appMode';
-import { createTrialLicense, hasTrialBeenUsed, signLicensePayload } from './licenseFactory';
+import { signLicensePayload, hasTrialBeenUsed } from './licenseFactory';
 import { loadLicense, saveLicense, licenseExists } from './licenseStorage';
 import { LicenseEnforcementResult, LicensePayload, LicenseValidationResult } from './types';
 import getHWID from './hwid';
@@ -38,7 +38,7 @@ const getExpiryDate = (license: LicensePayload) => {
 };
 
 const refreshLastVerified = (license: LicensePayload) => {
-  const next: LicensePayload = { ...license, last_verified_at: new Date().toISOString() };
+  const next: LicensePayload = { ...license, last_verified_at: new Date().toISOString(), last_checked_at: new Date().toISOString() };
   if (next.last_verified_at !== license.last_verified_at) {
     saveLicense(next, { allowUpdate: true });
   }
@@ -85,6 +85,13 @@ export const validateLicense = (expectedSchoolUid?: string): LicenseValidationRe
     }
   }
 
+  if (license.last_checked_at) {
+    const lastChecked = new Date(license.last_checked_at);
+    if (!Number.isNaN(lastChecked.getTime()) && Date.now() < lastChecked.getTime()) {
+      return { status: 'blocked', license, reason: 'clock_tamper' };
+    }
+  }
+
   const expiry = getExpiryDate(license);
   if (!expiry) {
     return { status: 'invalid', license, reason: 'corrupt_license' };
@@ -126,64 +133,8 @@ export const enforceLicense = (options?: EnforcementOptions): LicenseEnforcement
   const hwid = getHWID();
   const validation = validateLicense(options?.expectedSchoolUid);
 
-  const allowTrials = options?.allowTrialFallback && (isDemoMode() || (import.meta as any)?.env?.DEV);
-  if (validation.status === 'missing' && allowTrials && !hasTrialBeenUsed(hwid)) {
-    if (!options?.expectedSchoolUid) {
-      return { ...validation, allowed: false, reason: 'missing_school_uid_for_trial' };
-    }
-    try {
-      const trial = createTrialLicense(options.expectedSchoolUid, hwid);
-      saveLicense(trial);
-      return {
-        status: 'trial',
-        license: trial,
-        allowed: true,
-        generatedTrial: true,
-        trialAvailable: false
-      };
-    } catch (err: any) {
-      return { status: 'blocked', license: null, allowed: false, reason: err?.message || 'trial_creation_failed' };
-    }
-  }
-
   if (options?.programmerBypass && validation.status !== 'valid' && validation.status !== 'trial') {
     return { ...validation, allowed: true, bypassed: true };
-  }
-
-  if (validation.reason === 'grace') {
-    return {
-      ...validation,
-      allowed: true,
-      isSoftLocked: false,
-      activationRequired: false
-    };
-  }
-
-  const softReason = (() => {
-    if (validation.status === 'expired' && validation.reason !== 'grace') return 'expired';
-    if (validation.reason === 'hwid_mismatch') return 'hwid_mismatch';
-    if (validation.reason === 'school_mismatch') return 'school_mismatch';
-    return null;
-  })();
-  const softEligible = softReason && options?.softEnforcement !== false && !options?.programmerBypass;
-
-  if (softEligible) {
-    if ((import.meta as any).env?.DEV) {
-      const label = softReason === 'expired'
-        ? '[LICENSE][SOFT] expired \u2192 read-only'
-        : softReason === 'hwid_mismatch'
-          ? '[LICENSE][SOFT] hwid mismatch detected'
-          : '[LICENSE][SOFT] school mismatch detected';
-      console.info(label);
-    }
-    return {
-      ...validation,
-      allowed: true,
-      softBlocked: true,
-      isSoftLocked: true,
-      activationRequired: false,
-      reason: softReason || validation.reason
-    };
   }
 
   const allowed = validation.status === 'valid' || validation.status === 'trial';
@@ -196,8 +147,8 @@ export const enforceLicense = (options?: EnforcementOptions): LicenseEnforcement
     };
   }
 
-  const activationRequired = validation.status === 'missing' || validation.status === 'invalid' || validation.reason === 'grace_expired';
-  const reason = activationRequired ? (validation.reason || 'missing') : validation.reason || validation.status;
+  const activationRequired = true;
+  const reason = validation.reason || validation.status;
   return {
     ...validation,
     allowed: false,

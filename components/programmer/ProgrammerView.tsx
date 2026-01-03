@@ -62,7 +62,7 @@ const ProgrammerView: React.FC<{ store: any }> = ({ store }) => {
       case 'healthdash':
         return <SystemHealthDashboard store={store} />;
       case 'license':
-        return <LicenseManager />;
+        return <LicenseManager store={store} />;
       case 'hub':
         return (
           <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
