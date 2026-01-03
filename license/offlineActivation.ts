@@ -1,6 +1,6 @@
 import { LicensePayload, UnsignedLicensePayload } from './types';
 import { signLicensePayload } from './licenseFactory';
-import { saveLicense } from './licenseStorage';
+import { saveLicense, loadLicense } from './licenseStorage';
 import getHWID from './hwid';
 
 export type ActivationErrorReason =
@@ -8,7 +8,8 @@ export type ActivationErrorReason =
   | 'expired_license'
   | 'hwid_mismatch'
   | 'school_mismatch'
-  | 'corrupt_license';
+  | 'corrupt_license'
+  | 'trial_not_renewable';
 
 export type OfflineActivationResult =
   | { ok: true; license: LicensePayload }
@@ -56,6 +57,9 @@ export const activateOfflineLicense = (
   if (payload.license_type !== 'paid' && payload.license_type !== 'trial') {
     return { ok: false, reason: 'corrupt_license' };
   }
+  if (payload.license_type === 'trial') {
+    return { ok: false, reason: 'trial_not_renewable' };
+  }
   const hwid = getHWID();
   if (!payload.school_uid || payload.school_uid !== expectedSchoolUid) {
     return { ok: false, reason: 'school_mismatch' };
@@ -69,6 +73,16 @@ export const activateOfflineLicense = (
   }
   if (!payload.start_date || Number.isNaN(new Date(payload.start_date).getTime())) {
     return { ok: false, reason: 'corrupt_license' };
+  }
+
+  const existing = loadLicense();
+  if (existing) {
+    if (existing.school_uid !== payload.school_uid) {
+      return { ok: false, reason: 'school_mismatch' };
+    }
+    if (existing.device_fingerprint && existing.device_fingerprint !== hwid) {
+      return { ok: false, reason: 'hwid_mismatch' };
+    }
   }
 
   const unbound = !payload.device_fingerprint;

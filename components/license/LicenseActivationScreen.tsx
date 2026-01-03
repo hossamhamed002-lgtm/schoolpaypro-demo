@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { activateOfflineLicense, ActivationErrorReason } from '../../license/offlineActivation';
 import type { useStore as useStoreHook } from '../../store';
 import { BUY_URL } from '../../src/config/links';
+import { consumeActivationIntent } from '../../src/guards/activationGuard';
 
 type StoreState = ReturnType<typeof useStoreHook>;
 type Props = { store: StoreState };
@@ -26,6 +27,10 @@ const errorCopy: Record<ActivationErrorReason, { ar: string; en: string }> = {
   corrupt_license: {
     ar: 'ملف الترخيص تالف أو غير قابل للقراءة.',
     en: 'License file is corrupted or unreadable.'
+  },
+  trial_not_renewable: {
+    ar: 'لا يمكن تجديد ترخيص تجريبي. الرجاء استخدام ترخيص مدفوع.',
+    en: 'Trial licenses cannot be renewed. Please use a paid license.'
   }
 };
 
@@ -58,6 +63,10 @@ const LicenseActivationScreen: React.FC<Props> = ({ store }) => {
       setStatus('success');
       setSuccessMessage(isAr ? 'تم تفعيل الترخيص بنجاح.' : 'License activated successfully.');
       store.refreshLicenseStatus?.();
+      const intent = consumeActivationIntent();
+      if (intent && typeof window !== 'undefined' && window.location.pathname !== intent) {
+        window.history.replaceState(null, '', intent);
+      }
     } else {
       setStatus('error');
       setErrorReason(result.reason);

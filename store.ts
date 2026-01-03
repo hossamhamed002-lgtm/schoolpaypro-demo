@@ -11,7 +11,7 @@ import { getSecuritySettings } from './security/securitySettings';
 import { isAuthenticated } from './storageGate';
 import { load as loadData, save as saveData, remove as removeData, StorageScope } from './src/storage/dataLayer';
 import { setRedistributingStudentsFlag } from './services/redistributionGuard';
-import { enforceLicense } from './license/licenseGuard';
+import { enforceLicenseOrRedirect } from './license/licenseGuard';
 import { LicenseEnforcementResult } from './license/types';
 import { isDemoMode as isDemo } from './src/guards/appMode';
 import { exportLeadsCSV } from './src/demo/leadTracker';
@@ -526,24 +526,43 @@ const describeSoftBlock = (reason: string | null | undefined, lang: 'ar' | 'en')
   }
 };
 
-  const safeEnforceLicense = (options: Parameters<typeof enforceLicense>[0]) => {
-    const mergedOptions = { softEnforcement: true, ...(options || {}) };
+  const evaluateLicenseGate = (expectedSchoolUid?: string): LicenseEnforcementResult => {
     if (demoMode) {
       return { allowed: true, status: 'valid', reason: 'demo_mode', bypassed: true } as LicenseEnforcementResult;
     }
     if (DISABLE_LICENSE_CHECK) {
       return { allowed: true, status: 'valid', reason: 'license_check_disabled' } as LicenseEnforcementResult;
     }
-    if (!mergedOptions.expectedSchoolUid) {
+    if (isProgrammer) {
+      return { allowed: true, status: 'valid', reason: 'programmer_bypass', bypassed: true } as LicenseEnforcementResult;
+    }
+    if (!expectedSchoolUid) {
       return { allowed: true, status: 'missing', reason: 'missing_school_uid' } as LicenseEnforcementResult;
     }
-    console.info('[LICENSE] enforcing for UID:', mergedOptions.expectedSchoolUid);
-    try {
-      return enforceLicense(mergedOptions);
-    } catch (err) {
-      console.error('[LICENSE][ERROR]', err);
-      return { allowed: false, status: 'error', reason: 'runtime_error' } as LicenseEnforcementResult;
+    const decision = enforceLicenseOrRedirect({
+      expectedSchoolUid,
+      isProgrammer,
+      isDemo: demoMode
+    });
+    if (decision === 'ALLOW') {
+      return { allowed: true, status: 'valid', reason: 'ok' } as LicenseEnforcementResult;
     }
+    if (decision === 'HWID_MISMATCH') {
+      return {
+        allowed: false,
+        status: 'blocked',
+        reason: 'hwid_mismatch',
+        activationRequired: true,
+        isSoftLocked: false
+      } as LicenseEnforcementResult;
+    }
+    return {
+      allowed: false,
+      status: 'expired',
+      reason: 'expired',
+      activationRequired: true,
+      isSoftLocked: false
+    } as LicenseEnforcementResult;
   };
 
   const loadDbForSchool = (code: string) => {
@@ -890,29 +909,15 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
   ].filter((m) => (demoMode ? m.id !== 'programmer' : true));
 
   useEffect(() => {
-    if (demoMode) {
-      setLicenseGate({ allowed: true, status: 'valid', reason: 'demo_mode', bypassed: true } as LicenseEnforcementResult);
-      setLicenseChecked(true);
-      return;
-    }
-    if (isProgrammer) {
-      setLicenseGate({ allowed: true, status: 'valid', reason: 'programmer_bypass', bypassed: true } as LicenseEnforcementResult);
-      setStorageEnabled(true);
-      setLicenseChecked(true);
-      return;
-    }
-    if (!activeSchoolUid || licenseChecked) return;
-    const guard = safeEnforceLicense({
-      expectedSchoolUid: activeSchoolUid,
-      allowTrialFallback: true
-    });
+    if (licenseChecked || !activeSchoolUid) return;
+    const guard = evaluateLicenseGate(activeSchoolUid);
     setLicenseGate(guard);
     setLicenseChecked(true);
-    if (currentUser && !guard.allowed && !isProgrammer) {
+    if (currentUser && !guard.allowed && !isProgrammer && !demoMode) {
       setCurrentUser(null);
       setStorageEnabled(false);
     }
-  }, [activeSchoolUid, programmerMode, licenseChecked, demoMode, isProgrammer, currentUser]);
+  }, [activeSchoolUid, licenseChecked, currentUser, isProgrammer, demoMode]);
 
   const refreshLicenseStatus = () => {
     if (demoMode) {
@@ -930,10 +935,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     if (!activeSchoolUid) {
       return { ok: false, reason: 'missing_school_uid' };
     }
-    const guard = safeEnforceLicense({
-      expectedSchoolUid: activeSchoolUid,
-      allowTrialFallback: true
-    });
+    const guard = evaluateLicenseGate(activeSchoolUid);
     setLicenseGate(guard);
     setLicenseChecked(true);
     if (!guard.allowed && !guard.bypassed) {
@@ -1131,11 +1133,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
           attemptsLeft: guard.session.attemptsLeft
         };
       }
-      const licenseCheck = safeEnforceLicense({
-        expectedSchoolUid: ensured.uid || ensured.db?.schools?.[0]?.school_uid,
-        allowTrialFallback: true,
-        softEnforcement: !user?.Permissions?.includes('programmer')
-      });
+      const licenseCheck = evaluateLicenseGate(ensured.uid || ensured.db?.schools?.[0]?.school_uid);
       setLicenseGate(licenseCheck);
       if (!licenseCheck.allowed) {
         return { ok: false, error: describeLicenseError(licenseCheck, lang) || 'License check failed' };
@@ -1162,11 +1160,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
       console.error('[SCHOOLS] No programmer school snapshot found');
       return { ok: false, error: 'No programmer school snapshot' };
     }
-    const licenseCheck = safeEnforceLicense({
-      expectedSchoolUid: nextDb.schools?.[0]?.school_uid,
-      programmerBypass: true,
-      softEnforcement: false
-    });
+    const licenseCheck = evaluateLicenseGate(nextDb.schools?.[0]?.school_uid);
     setLicenseGate(licenseCheck);
     setDb(nextDb);
     setWorkingYearId(yearId);
@@ -1205,11 +1199,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     if (!result.ok) {
       return { ok: false, error: result.error || 'الكود غير صحيح', attemptsLeft: result.attemptsLeft };
     }
-    const licenseCheck = safeEnforceLicense({
-      expectedSchoolUid: pendingOtp.db?.schools?.[0]?.school_uid,
-      allowTrialFallback: true,
-      softEnforcement: !pendingOtp.user?.Permissions?.includes('programmer')
-    });
+    const licenseCheck = evaluateLicenseGate(pendingOtp.db?.schools?.[0]?.school_uid);
     setLicenseGate(licenseCheck);
     if (!licenseCheck.allowed) {
       setPendingOtp(null);
@@ -1259,11 +1249,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     if (!user) {
       return { ok: false, error: lang === 'ar' ? 'بيانات الدخول غير صحيحة' : 'Invalid credentials' };
     }
-    const licenseCheck = safeEnforceLicense({
-      expectedSchoolUid: ensured.uid || ensured.db?.schools?.[0]?.school_uid,
-      allowTrialFallback: true,
-      softEnforcement: !user?.Permissions?.includes('programmer')
-    });
+    const licenseCheck = evaluateLicenseGate(ensured.uid || ensured.db?.schools?.[0]?.school_uid);
     setLicenseGate(licenseCheck);
     if (!licenseCheck.allowed) {
       return { ok: false, error: describeLicenseError(licenseCheck, lang) || 'License check failed' };
@@ -1333,6 +1319,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     activeSchool, activeYear, currentUser, workingYearId, setActiveYearId: setWorkingYearId,
     availableModules,
     isReadOnly,
+    isSoftLocked: isSoftBlocked,
     isSoftBlocked,
     softBlockReason,
     isRedistributingStudents,

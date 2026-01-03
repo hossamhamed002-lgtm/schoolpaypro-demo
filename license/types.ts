@@ -29,6 +29,7 @@ export interface LicenseEnforcementResult extends LicenseValidationResult {
   softBlocked?: boolean;
   isSoftLocked?: boolean;
   activationRequired?: boolean;
+  graceDaysLeft?: number;
 }
 
 export type UnsignedLicensePayload = Omit<LicensePayload, 'signature'>;

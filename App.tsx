@@ -24,6 +24,7 @@ import { BUY_URL } from './src/config/links';
 import { getLastBindingStatus } from './license/licenseGuard';
 import type { LicenseBindingStatus } from './src/license/hwidBinding';
 import LicenseActivationScreen from './components/license/LicenseActivationScreen';
+import { rememberActivationIntent, hasActivationBeenShown } from './src/guards/activationGuard';
 
 type TabId =
   | 'dashboard'
@@ -76,10 +77,25 @@ const App: React.FC = () => {
         ? '⚠️ الترخيص غير مرتبط بهذه المدرسة — تم تفعيل وضع القراءة فقط'
         : '⚠️ License not bound to this school — read-only mode enabled';
     }
+    if (reason === 'grace_expired') {
+      return isAr
+        ? '⚠️ انتهت فترة السماح — الرجاء تجديد الترخيص'
+        : '⚠️ Grace period ended — please renew the license';
+    }
     return isAr
       ? '⚠️ انتهت صلاحية الترخيص — يمكنك تصفح النظام لكن لا يمكنك التعديل'
       : '⚠️ License expired — read-only mode enabled';
   }, [store.isSoftBlocked, store.lang, store.softBlockReason]);
+
+  const graceCopy = React.useMemo(() => {
+    const reason = store.licenseStatus?.reason;
+    if (reason !== 'grace') return null;
+    const isAr = store.lang === 'ar';
+    const days = store.licenseStatus?.graceDaysLeft ?? 0;
+    return isAr
+      ? `⚠️ الترخيص منتهي — متبقي ${days} يوم${days === 1 ? '' : days <= 10 ? 'ًا' : ''} للتجديد`
+      : `⚠️ License expired — ${days} day(s) left in grace period`;
+  }, [store.lang, store.licenseStatus]);
 
   const pathIsDemo = typeof window !== 'undefined' && window.location.pathname.startsWith('/demo');
   const pathIsAdmin = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
@@ -90,8 +106,11 @@ const App: React.FC = () => {
       && !isDemoMode()
       && !store.isProgrammer
       && store.licenseStatus
-      && (store.licenseStatus.allowed === false || store.licenseStatus.softBlocked)
-      && ['expired', 'hwid_mismatch', 'missing_license'].includes(String(activationReason))
+      && (
+        store.licenseStatus.activationRequired
+        || store.licenseStatus.allowed === false
+      )
+      && ['expired', 'hwid_mismatch', 'missing_license', 'missing'].includes(String(activationReason))
     );
 
   const DemoBadge = () => (
@@ -156,6 +175,25 @@ const App: React.FC = () => {
     );
   };
 
+  const GraceBanner = () => {
+    if (!graceCopy || !store.currentUser) return null;
+    return (
+      <div className="fixed top-0 left-0 right-0 z-[55]">
+        <div className="mx-auto max-w-5xl px-4 py-3 bg-yellow-50 border-b border-yellow-200 text-yellow-900 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 shadow">
+          <div className="text-sm font-semibold leading-snug">{graceCopy}</div>
+          <a
+            href={BUY_URL || 'https://wa.me/201094981227'}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 text-xs font-bold px-3 py-2 rounded-lg bg-indigo-600 text-white shadow hover:bg-indigo-700 transition-colors"
+          >
+            {store.lang === 'ar' ? 'تجديد الترخيص' : 'Renew license'}
+          </a>
+        </div>
+      </div>
+    );
+  };
+
   React.useEffect(() => {
     if (isDemoMode()) {
       return;
@@ -174,6 +212,12 @@ const App: React.FC = () => {
       sessionStorage.setItem('EDULOGIC_HWID_WARNED_V1', '1');
     }
   }, [store.currentUser]);
+
+  React.useEffect(() => {
+    if (shouldShowActivation && !hasActivationBeenShown()) {
+      rememberActivationIntent();
+    }
+  }, [shouldShowActivation]);
 
   React.useEffect(() => {
     if (store.setHrSyncEnabled) {
@@ -234,6 +278,7 @@ const App: React.FC = () => {
         <LicenseActivationScreen store={store} />
         <DemoBadge />
         <HwidWarning />
+        <GraceBanner />
       </>
     );
   }
@@ -251,6 +296,7 @@ const App: React.FC = () => {
         />
         <DemoBadge />
         <HwidWarning />
+        <GraceBanner />
         <SoftBlockBanner />
         {isDemoMode() && (
           <a
@@ -275,7 +321,7 @@ const App: React.FC = () => {
       >
         <div
           className="flex h-screen bg-slate-50 transition-all duration-300 overflow-hidden"
-          style={store.isSoftBlocked ? { paddingTop: '64px' } : undefined}
+          style={(store.isSoftBlocked || graceCopy) ? { paddingTop: '64px' } : undefined}
         >
           <Sidebar
             activeTab={activeTab}
@@ -311,6 +357,7 @@ const App: React.FC = () => {
       </AcademicYearProvider>
       <DemoBadge />
       <HwidWarning />
+      <GraceBanner />
       <SoftBlockBanner />
       {isDemoMode() && (
         <a

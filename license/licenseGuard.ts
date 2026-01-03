@@ -16,16 +16,24 @@ let lastBindingStatus: LicenseBindingStatus | null = null;
 
 export const getLastBindingStatus = () => lastBindingStatus;
 
+const LICENSE_GRACE_DAYS = 7;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+export type EnforcementDecision = 'ALLOW' | 'LICENSE_EXPIRED' | 'HWID_MISMATCH';
+type EnforcementContext = {
+  expectedSchoolUid?: string;
+  isProgrammer?: boolean;
+  isDemo?: boolean;
+};
+
 const verifySignature = (license: LicensePayload) => {
   const { signature, ...unsigned } = license;
   return signature === signLicensePayload(unsigned);
 };
 
-const isExpired = (license: LicensePayload) => {
-  const end = new Date(license.end_date);
-  if (Number.isNaN(end.getTime())) return true;
-  const today = new Date();
-  return end.getTime() < today.getTime();
+const getExpiryDate = (license: LicensePayload) => {
+  const end = new Date(license.expires_at || license.end_date);
+  return Number.isNaN(end.getTime()) ? null : end;
 };
 
 const refreshLastVerified = (license: LicensePayload) => {
@@ -76,7 +84,22 @@ export const validateLicense = (expectedSchoolUid?: string): LicenseValidationRe
     }
   }
 
-  if (isExpired(license)) {
+  const expiry = getExpiryDate(license);
+  if (!expiry) {
+    return { status: 'invalid', license, reason: 'corrupt_license' };
+  }
+  const now = Date.now();
+  const expMs = expiry.getTime();
+  const graceMs = expMs + LICENSE_GRACE_DAYS * MS_PER_DAY;
+  if (now > graceMs) {
+    return { status: 'blocked', license, reason: 'grace_expired' };
+  }
+  if (now > expMs) {
+    const graceDaysLeft = Math.max(0, Math.ceil((graceMs - now) / MS_PER_DAY));
+    return { status: 'expired', license, reason: 'grace', graceDaysLeft };
+  }
+
+  if (license.license_type === 'trial' && expMs < now) {
     return { status: 'expired', license, reason: 'expired' };
   }
 
@@ -125,8 +148,17 @@ export const enforceLicense = (options?: EnforcementOptions): LicenseEnforcement
     return { ...validation, allowed: true, bypassed: true };
   }
 
+  if (validation.reason === 'grace') {
+    return {
+      ...validation,
+      allowed: true,
+      isSoftLocked: false,
+      activationRequired: false
+    };
+  }
+
   const softReason = (() => {
-    if (validation.status === 'expired') return 'expired';
+    if (validation.status === 'expired' && validation.reason !== 'grace') return 'expired';
     if (validation.reason === 'hwid_mismatch') return 'hwid_mismatch';
     if (validation.reason === 'school_mismatch') return 'school_mismatch';
     return null;
@@ -162,8 +194,8 @@ export const enforceLicense = (options?: EnforcementOptions): LicenseEnforcement
     };
   }
 
-  const activationRequired = validation.status === 'missing' || validation.status === 'invalid';
-  const reason = activationRequired ? 'missing' : validation.reason || validation.status;
+  const activationRequired = validation.status === 'missing' || validation.status === 'invalid' || validation.reason === 'grace_expired';
+  const reason = activationRequired ? (validation.reason || 'missing') : validation.reason || validation.status;
   return {
     ...validation,
     allowed: false,
@@ -177,4 +209,35 @@ export const canCreateTrial = () => {
   if (isDemoMode()) return false;
   const hwid = getHWID();
   return !licenseExists() && !hasTrialBeenUsed(hwid);
+};
+
+export const enforceLicenseOrRedirect = (context?: EnforcementContext): EnforcementDecision => {
+  if (context?.isProgrammer) return 'ALLOW';
+  if (context?.isDemo || isDemoMode()) return 'ALLOW';
+
+  const license = loadLicense();
+  if (!license) return 'LICENSE_EXPIRED';
+
+  if (context?.expectedSchoolUid && license.school_uid !== context.expectedSchoolUid) {
+    return 'LICENSE_EXPIRED';
+  }
+
+  const status = (license.status || 'active').toString().toLowerCase();
+  if (status !== 'active' && status !== 'activated') {
+    return 'LICENSE_EXPIRED';
+  }
+
+  const expiryRaw = license.expires_at || license.end_date;
+  if (expiryRaw) {
+    const expiry = new Date(expiryRaw);
+    if (Number.isNaN(expiry.getTime())) return 'LICENSE_EXPIRED';
+    if (Date.now() > expiry.getTime()) return 'LICENSE_EXPIRED';
+  }
+
+  const boundHwid = (license as any).hwid || license.device_fingerprint;
+  if (boundHwid && boundHwid !== getHWID()) {
+    return 'HWID_MISMATCH';
+  }
+
+  return 'ALLOW';
 };
