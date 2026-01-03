@@ -62,7 +62,7 @@ const App: React.FC = () => {
         className="fixed top-3 right-3 z-50 px-4 py-2 rounded-xl bg-amber-100 border border-amber-200 text-amber-800 text-xs font-black shadow"
         title="Demo Mode"
       >
-        نسخة تجريبية Demo – بعض الخصائص معطلة · Demo Mode
+        نسخة تجريبية – البيانات مؤقتة وستُحذف تلقائيًا
       </div>
     ) : null
   );

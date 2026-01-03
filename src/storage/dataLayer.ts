@@ -59,11 +59,6 @@ class LocalStorageDriver implements StorageDriver {
   }
 
   save(scope: StorageScope, key: string, value: unknown, namespace?: string): boolean {
-    if (isDemoMode()) {
-      console.info('[DEMO] Persistence blocked');
-      showDemoToast();
-      return true;
-    }
     if (typeof window === 'undefined') return false;
     const serialized = stringifyValue(value);
     if (!serialized || !isWithinLimit(serialized)) return false;
@@ -77,27 +72,17 @@ class LocalStorageDriver implements StorageDriver {
   }
 
   remove(scope: StorageScope, key: string, namespace?: string): void {
-    if (isDemoMode()) {
-      console.info('[DEMO] Remove blocked');
-      showDemoToast();
-      return;
-    }
     if (typeof window === 'undefined') return;
     const { primary, legacy } = buildKey(scope, key, namespace);
     window.localStorage.removeItem(primary);
     window.localStorage.removeItem(legacy);
   }
 
-  clearScope(scope: StorageScope): void {
-    if (isDemoMode()) {
-      console.info('[DEMO] Clear blocked');
-      showDemoToast();
-      return;
-    }
+  clearScope(scope: StorageScope, namespace?: string): void {
     if (typeof window === 'undefined') return;
     const prefix = `${scope}__`;
     Object.keys(window.localStorage)
-      .filter((k) => k.startsWith(prefix))
+      .filter((k) => k.startsWith(prefix) && (!namespace || k.endsWith(`__${namespace}`)))
       .forEach((k) => window.localStorage.removeItem(k));
   }
 }

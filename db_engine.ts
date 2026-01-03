@@ -7,6 +7,34 @@ const UID_MAP_KEY = 'SCHOOL_UID_MAP_V1';
 
 const buildScopedKey = (key: string, namespace?: string) =>
   namespace ? `${key}__${namespace}` : key;
+const DEMO_NAMESPACE = 'DEMO_DB_V1';
+const DEMO_SESSION_KEY = 'DEMO_SESSION_ID';
+const DEMO_EXPIRES_KEY = 'DEMO_EXPIRES_AT';
+const DEMO_TTL_MS = 24 * 60 * 60 * 1000;
+
+const ensureDemoNamespace = () => {
+  if (!isDemoMode()) return null;
+  try {
+    const storage = localStorage;
+    const now = Date.now();
+    const storedNs = storage.getItem(DEMO_SESSION_KEY);
+    const storedExp = Number(storage.getItem(DEMO_EXPIRES_KEY) || 0);
+    const expired = !storedNs || !storedExp || storedExp < now;
+    if (expired) {
+      if (storedNs) {
+        clearScope(StorageScope.SCHOOL_DATA, storedNs);
+        clearScope(StorageScope.SETTINGS, storedNs);
+      }
+      const session = `${DEMO_NAMESPACE}_${Math.random().toString(36).slice(2, 8)}_${Date.now()}`;
+      storage.setItem(DEMO_SESSION_KEY, session);
+      storage.setItem(DEMO_EXPIRES_KEY, (now + DEMO_TTL_MS).toString());
+      return session;
+    }
+    return storedNs;
+  } catch {
+    return DEMO_NAMESPACE;
+  }
+};
 
 // البحث في كافة المفاتيح التي قد تكون البيانات مخزنة بها من إصدارات سابقة
 const SEARCH_KEYS = [
@@ -55,17 +83,13 @@ const getUidForNamespace = (code?: string): string | null => {
 };
 
 export const saveToStorage = (data: any, namespace?: string) => {
-  if (isDemoMode()) {
-    console.info('[DEMO] Persistence blocked');
-    showDemoToast();
-    return true;
-  }
+  const scopedNamespace = isDemoMode() ? ensureDemoNamespace() || DEMO_NAMESPACE : namespace;
   try {
-    const scopedKey = buildScopedKey(DB_KEY, namespace);
+    const scopedKey = buildScopedKey(DB_KEY, scopedNamespace);
     const saved = saveData(StorageScope.SCHOOL_DATA, scopedKey, data);
     if (saved) {
       const serializedData = typeof data === 'string' ? data : JSON.stringify(data);
-      sessionStorage.setItem(buildScopedKey(DB_KEY + '_SESSION_BACKUP', namespace), serializedData);
+      sessionStorage.setItem(buildScopedKey(DB_KEY + '_SESSION_BACKUP', scopedNamespace), serializedData);
       const uid = getUidForNamespace(namespace);
       if (uid) {
         const uidKey = buildScopedKey(DB_KEY, uid);
@@ -91,13 +115,9 @@ export const loadFromStorageKey = <T>(key: string, fallback: T, namespace?: stri
   })();
 
 export const saveToStorageKey = (key: string, data: unknown, namespace?: string) => {
-  if (isDemoMode()) {
-    console.info('[DEMO] Persistence blocked');
-    showDemoToast();
-    return true;
-  }
+  const scopedNamespace = isDemoMode() ? ensureDemoNamespace() || DEMO_NAMESPACE : namespace;
   try {
-    saveData(StorageScope.SCHOOL_DATA, buildScopedKey(key, namespace), data);
+    saveData(StorageScope.SCHOOL_DATA, buildScopedKey(key, scopedNamespace), data);
     const uid = getUidForNamespace(namespace);
     if (uid) {
       saveData(StorageScope.SCHOOL_DATA, buildScopedKey(key, uid), data);
@@ -108,7 +128,8 @@ export const saveToStorageKey = (key: string, data: unknown, namespace?: string)
 };
 
 export const loadFromStorage = (initialState: any, namespace?: string) => {
-  const scopedKey = buildScopedKey(DB_KEY, namespace);
+  const scopedNamespace = isDemoMode() ? ensureDemoNamespace() || DEMO_NAMESPACE : namespace;
+  const scopedKey = buildScopedKey(DB_KEY, scopedNamespace);
   const uid = getUidForNamespace(namespace);
 
   const tryLoad = (key: string, scope: string | undefined) =>
@@ -140,12 +161,12 @@ export const loadFromStorage = (initialState: any, namespace?: string) => {
   }
 
   if (!saved) {
-    saved = tryLoad(DB_KEY, namespace);
+    saved = tryLoad(DB_KEY, scopedNamespace);
   }
 
   if (!saved) {
     for (const key of SEARCH_KEYS) {
-      const legacy = tryLoad(key, namespace);
+      const legacy = tryLoad(key, scopedNamespace);
       if (legacy) {
         saved = legacy;
         saveData(StorageScope.SCHOOL_DATA, scopedKey, legacy);
@@ -155,7 +176,7 @@ export const loadFromStorage = (initialState: any, namespace?: string) => {
   }
 
   if (!saved) {
-    const backup = sessionStorage.getItem(buildScopedKey(DB_KEY + '_SESSION_BACKUP', namespace));
+    const backup = sessionStorage.getItem(buildScopedKey(DB_KEY + '_SESSION_BACKUP', scopedNamespace));
     if (backup) {
       try {
         saved = JSON.parse(backup);
@@ -185,7 +206,7 @@ export const getSchoolLogoByCode = (schoolCode: string) => {
 export const exportDatabase = (data: any) => {
   if (isDemoMode()) {
     console.info('[DEMO] Export blocked');
-    showDemoToast('هذه نسخة Demo – الرجاء التواصل للشراء');
+    showDemoToast('نسخة تجريبية – لا يتم حفظ أو تصدير البيانات');
     return;
   }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -200,7 +221,7 @@ export const exportDatabase = (data: any) => {
 export const importDatabase = (file: File): Promise<any> => {
   if (isDemoMode()) {
     console.info('[DEMO] Import blocked');
-    showDemoToast('هذه نسخة Demo – الرجاء التواصل للشراء');
+    showDemoToast('نسخة تجريبية – لا يتم حفظ أو تصدير البيانات');
     return Promise.reject('الاستعادة متاحة في النسخة الكاملة فقط');
   }
   return new Promise((resolve, reject) => {

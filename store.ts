@@ -927,12 +927,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
 
   const guardDestructive = <T extends (...args: any[]) => any>(fn: T | undefined, returnValue: any = false) => {
     if (!fn) return fn;
-    if (!demoMode) return fn;
-    return ((..._args: any[]) => {
-      showDemoToast(lang === 'ar' ? 'هذه نسخة Demo – الرجاء التواصل للشراء' : 'Demo version – contact us to purchase');
-      console.info('[DEMO] Destructive action blocked');
-      return returnValue;
-    }) as T;
+    return fn;
   };
 
   const hydrateDemoSnapshot = () => {
@@ -941,7 +936,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     setDb(hydrated);
     setWorkingYearId(yearId);
     setActiveSchoolCode(DEMO_SCHOOL_CODE);
-    setStorageEnabled(false);
+    setStorageEnabled(true);
     setIsSaved(true);
     setLicenseGate({ allowed: true, status: 'valid', reason: 'demo_mode', bypassed: true } as LicenseEnforcementResult);
     return hydrated;
