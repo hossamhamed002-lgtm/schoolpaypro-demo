@@ -18,8 +18,8 @@ import useAutoBackup from './hooks/useAutoBackup';
 import SupportWidget from './components/SupportWidget';
 import { setModuleActive } from './storageGate';
 import { isDemoMode } from './src/guards/appMode';
-
-const BUY_URL = 'https://YOUR_DOMAIN_HERE/buy';
+import LandingPage from './src/landing/LandingPage';
+import AdminLicensesPage from './src/admin/AdminLicensesPage';
 
 type TabId =
   | 'dashboard'
@@ -55,6 +55,9 @@ const App: React.FC = () => {
       console.info('🧪 Demo Mode Active');
     }
   }, []);
+
+  const pathIsDemo = typeof window !== 'undefined' && window.location.pathname.startsWith('/demo');
+  const pathIsAdmin = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
 
   const DemoBadge = () => (
     isDemoMode() ? (
@@ -112,6 +115,14 @@ const App: React.FC = () => {
     }
   }, [activeTab, store]);
 
+  if (isDemoMode() && !pathIsDemo) {
+    return <LandingPage />;
+  }
+
+  if (pathIsAdmin) {
+    return <AdminLicensesPage />;
+  }
+
   if (!store.currentUser) {
     return (
       <>
@@ -124,6 +135,16 @@ const App: React.FC = () => {
           defaultSchoolCode={store.schoolCode}
         />
         <DemoBadge />
+        {isDemoMode() && (
+          <a
+            className="fixed bottom-4 right-4 z-50 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black shadow hover:bg-indigo-700"
+            href="https://wa.me/201094981227?text=%D9%85%D8%B1%D8%AD%D8%A8%D9%8B%D8%A7%D8%8C%20%D8%A3%D9%86%D8%A7%20%D9%85%D9%87%D8%AA%D9%85%20%D8%A8%D8%B4%D8%B1%D8%A7%D8%A1%20%D9%86%D8%B3%D8%AE%D8%A9%20SchoolPay%20Pro%20%D9%88%D8%B4%D8%A7%D9%87%D8%AF%D8%AA%20%D8%A7%D9%84%D9%86%D8%B3%D8%AE%D8%A9%20%D8%A7%D9%84%D8%AA%D8%AC%D8%B1%D9%8A%D8%A8%D9%8A%D8%A9."
+            target="_blank"
+            rel="noreferrer"
+          >
+            {store.lang === 'ar' ? 'طلب النسخة الكاملة' : 'Request Full Version'}
+          </a>
+        )}
       </>
     );
   }
@@ -169,6 +190,16 @@ const App: React.FC = () => {
         </div>
       </AcademicYearProvider>
       <DemoBadge />
+      {isDemoMode() && (
+        <a
+          className="fixed bottom-4 right-4 z-50 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black shadow hover:bg-indigo-700"
+          href="https://wa.me/201094981227?text=%D9%85%D8%B1%D8%AD%D8%A8%D9%8B%D8%A7%D8%8C%20%D8%A3%D9%86%D8%A7%20%D9%85%D9%87%D8%AA%D9%85%20%D8%A8%D8%B4%D8%B1%D8%A7%D8%A1%20%D9%86%D8%B3%D8%AE%D8%A9%20SchoolPay%20Pro%20%D9%88%D8%B4%D8%A7%D9%87%D8%AF%D8%AA%20%D8%A7%D9%84%D9%86%D8%B3%D8%AE%D8%A9%20%D8%A7%D9%84%D8%AA%D8%AC%D8%B1%D9%8A%D8%A8%D9%8A%D8%A9."
+          target="_blank"
+          rel="noreferrer"
+        >
+          {store.lang === 'ar' ? 'طلب النسخة الكاملة' : 'Request Full Version'}
+        </a>
+      )}
     </>
   );
 };

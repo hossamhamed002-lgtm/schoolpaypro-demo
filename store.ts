@@ -14,6 +14,7 @@ import { setRedistributingStudentsFlag } from './services/redistributionGuard';
 import { enforceLicense } from './license/licenseGuard';
 import { LicenseEnforcementResult } from './license/types';
 import { isDemoMode as isDemo } from './src/guards/appMode';
+import { exportLeadsCSV } from './src/demo/leadTracker';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:4100';
 const DISABLE_LICENSE_CHECK = false;
@@ -1300,6 +1301,16 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     allReceipts,
     allJournalEntries,
     ...academicActions, ...memberActions, ...financeActions,
+      exportLeads: () => {
+        if (!demoMode || !isProgrammer) return;
+        const csv = exportLeadsCSV();
+        if (!csv) return;
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'demo-leads.csv';
+        link.click();
+      },
       deleteYear: guardDestructive(academicActions.deleteYear),
       deleteStage: guardDestructive(academicActions.deleteStage),
       deleteGrade: guardDestructive(academicActions.deleteGrade),

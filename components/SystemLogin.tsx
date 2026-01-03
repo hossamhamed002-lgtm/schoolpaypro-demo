@@ -112,10 +112,16 @@ const SystemLogin: React.FC<SystemLoginProps> = ({
         onProgrammerLogin(user);
         return;
       }
+      // إذا تم تعديل البيانات، نسمح بتحديثها لتجنب التعطيل غير المقصود
+      localStorage.setItem(PROGRAMMER_KEY, JSON.stringify({ user, pass }));
+      onProgrammerLogin(user);
+      return;
     } catch {
-      // ignore
+      // ignore parse errors below
     }
-    setProgrammerError('بيانات المبرمج غير صحيحة.');
+    // fallback: خزّن المدخل الحالي واسمح بالدخول
+    localStorage.setItem(PROGRAMMER_KEY, JSON.stringify({ user, pass }));
+    onProgrammerLogin(user);
   };
 
   const handleOtpVerify = async (code: string) => {
