@@ -15,6 +15,7 @@ interface SchoolEntry {
   whatsappPhone?: string;
   emailAddress?: string;
   allowedModules: string[];
+  school_uid?: string;
 }
 
 const loadDirectory = (): SchoolEntry[] => {
@@ -37,6 +38,11 @@ const saveDirectory = (items: SchoolEntry[]) => {
 };
 
 const normalizeCode = (value: string) => value.trim().toUpperCase();
+const generateUid = () => {
+  const g: any = (typeof crypto !== 'undefined' && crypto) || (typeof window !== 'undefined' ? (window as any).crypto : null);
+  if (g?.randomUUID) return g.randomUUID();
+  return `sch-${Math.random().toString(36).slice(2, 10)}-${Date.now()}`;
+};
 
 const buildDefaultModules = () => SYSTEM_MODULES.filter((m) => m.id !== 'programmer').map((m) => m.id);
 
@@ -97,7 +103,8 @@ const createScopedSchool = (code: string, name: string, payload: Partial<SchoolE
       Email_Address: payload.emailAddress || school.Email_Address,
       Allowed_Modules: payload.allowedModules || school.Allowed_Modules || buildDefaultModules(),
       Subscription_Start: payload.subscriptionStart || school.Subscription_Start,
-      Subscription_End: payload.subscriptionEnd || school.Subscription_End
+      Subscription_End: payload.subscriptionEnd || school.Subscription_End,
+      school_uid: payload.school_uid || school.school_uid || generateUid()
     }]
   };
 
@@ -123,7 +130,8 @@ const SchoolsManager: React.FC<{ store: any }> = ({ store }) => {
     subscriptionEnd: '',
     whatsappPhone: '',
     emailAddress: '',
-    allowedModules: buildDefaultModules()
+    allowedModules: buildDefaultModules(),
+    school_uid: generateUid()
   }));
   const [rebindCode, setRebindCode] = useState('');
   const [rebindUid, setRebindUid] = useState('');
@@ -148,7 +156,8 @@ const SchoolsManager: React.FC<{ store: any }> = ({ store }) => {
       subscriptionEnd: '',
       whatsappPhone: '',
       emailAddress: '',
-      allowedModules: buildDefaultModules()
+      allowedModules: buildDefaultModules(),
+      school_uid: generateUid()
     });
   };
 
@@ -179,7 +188,7 @@ const SchoolsManager: React.FC<{ store: any }> = ({ store }) => {
   const handleSave = () => {
     const name = form.name.trim();
     const code = normalizeCode(form.code || codeRef.current || generateSchoolCode());
-    const payload = { ...form, name, code };
+    const payload = { ...form, name, code, school_uid: form.school_uid || generateUid() };
 
     if (!name) {
       alert(isRtl ? 'اسم المدرسة مطلوب.' : 'School name is required.');

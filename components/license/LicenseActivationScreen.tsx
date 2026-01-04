@@ -1,8 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { activateOfflineLicense, ActivationErrorReason } from '../../license/offlineActivation';
+import { ActivationErrorReason } from '../../license/offlineActivation';
+import { activateLicenseKey } from '../../license/licenseKeyStore';
+import { normalizeLicenseKey } from '../../license/licenseKeyFactory';
 import type { useStore as useStoreHook } from '../../store';
 import { BUY_URL } from '../../src/config/links';
 import { consumeActivationIntent } from '../../src/guards/activationGuard';
+import { loadLicense } from '../../license/licenseStorage';
 
 type StoreState = ReturnType<typeof useStoreHook>;
 type Props = { store: StoreState };
@@ -48,28 +51,92 @@ const LicenseActivationScreen: React.FC<Props> = ({ store }) => {
     return isAr ? errorCopy[errorReason].ar : errorCopy[errorReason].en;
   }, [errorReason, isAr]);
 
+  const mapKeyActivationError = (error: string): ActivationErrorReason => {
+    switch (error) {
+      case 'KEY_EXPIRED':
+        return 'expired_license';
+      case 'KEY_REVOKED':
+      case 'INVALID_SIGNATURE':
+        return 'invalid_signature';
+      case 'KEY_ALREADY_USED':
+        return 'hwid_mismatch';
+      case 'LICENSE_SAVE_FAILED':
+        return 'corrupt_license';
+      case 'PROGRAMMER_DEVICE_BLOCKED':
+        return 'invalid_signature';
+      default:
+        return 'corrupt_license';
+    }
+  };
+
   const handleActivate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!expectedSchoolUid) {
-      setErrorReason('corrupt_license');
-      setStatus('error');
-      return;
-    }
     setStatus('processing');
     setErrorReason(null);
     setSuccessMessage('');
-    const result = activateOfflineLicense(licenseKey, expectedSchoolUid);
-    if (result.ok) {
+    const normalizedKey = normalizeLicenseKey(licenseKey);
+    try {
+      const vault = loadLicense();
+      const storedKey = vault?.issued_keys?.find((k) => normalizeLicenseKey(k.license_key) === normalizedKey) || null;
+      if ((import.meta as any).env?.DEV) {
+        console.info('[LICENSE][ACT][LOOKUP]', { input: normalizedKey, found: !!storedKey, issued: vault?.issued_keys?.length || 0 });
+      }
+      if (!storedKey) {
+        setStatus('error');
+        setErrorReason('invalid_signature');
+        return;
+      }
+      if (storedKey.revoked) {
+        setStatus('error');
+        setErrorReason('invalid_signature');
+        return;
+      }
+      const expiresAt = storedKey.expires_at ? new Date(storedKey.expires_at) : null;
+      if (expiresAt && expiresAt.getTime() < Date.now()) {
+        setStatus('error');
+        setErrorReason('expired_license');
+        return;
+      }
+      const targetSchoolUid = storedKey.school_uid || expectedSchoolUid || '';
+      const isHostEnvironment = (() => {
+        if (typeof window === 'undefined') return false;
+        const host = window.location.hostname || '';
+        const proto = window.location.protocol || '';
+        return host === 'localhost'
+          || host === '127.0.0.1'
+          || host.endsWith('.vercel.app')
+          || proto === 'file:';
+      })();
+      const isFirstRun = !store.activeSchool?.school_uid && !store.licenseGate?.license;
+      const result = activateLicenseKey(storedKey, {
+        school_uid: targetSchoolUid,
+        isHostEnvironment,
+        isFirstRun
+      });
+      if (!result.ok) {
+        setStatus('error');
+        setErrorReason(mapKeyActivationError(result.error));
+        return;
+      }
       setStatus('success');
       setSuccessMessage(isAr ? 'تم تفعيل الترخيص بنجاح.' : 'License activated successfully.');
       store.refreshLicenseStatus?.();
+      if (typeof (window as any).setEntryMode === 'function') {
+        (window as any).setEntryMode(null);
+      }
+      if (typeof (window as any).onLicenseActivated === 'function') {
+        (window as any).onLicenseActivated();
+      }
       const intent = consumeActivationIntent();
       if (intent && typeof window !== 'undefined' && window.location.pathname !== intent) {
         window.history.replaceState(null, '', intent);
       }
-    } else {
+    } catch (err) {
+      if ((import.meta as any).env?.DEV) {
+        console.error('[LICENSE][ACT][ERROR]', err);
+      }
       setStatus('error');
-      setErrorReason(result.reason);
+      setErrorReason('corrupt_license');
     }
   };
 

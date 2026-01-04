@@ -13,6 +13,9 @@ const fallbackHash = (value: string) => {
   return Math.abs(hash).toString(16);
 };
 
+export const normalizeLicenseKey = (value: string) =>
+  (value || '').replace(/[\s\u200B\u200C\u200D\u00A0]+/g, '').toUpperCase();
+
 const randomBlock = () => {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const bytes = nodeCrypto?.randomBytes ? nodeCrypto.randomBytes(4) : undefined;
@@ -58,19 +61,24 @@ export type GenerateLicenseKeyInput = {
   duration_days: number;
   max_devices?: number;
   license_key?: string;
+  expires_at?: string;
 };
 
 export const generateLicenseKey = (input: GenerateLicenseKeyInput): LicenseKeyPayload => {
   const now = new Date();
-  const expires = new Date(now.getTime() + Math.max(1, input.duration_days) * 24 * 60 * 60 * 1000);
-  const licenseKey = input.license_key || generateKeyString();
+  const parsedExpiry = input.expires_at ? new Date(input.expires_at) : null;
+  const expires = parsedExpiry && !Number.isNaN(parsedExpiry.getTime())
+    ? parsedExpiry
+    : new Date(now.getTime() + Math.max(1, input.duration_days) * 24 * 60 * 60 * 1000);
+  const durationDays = Math.max(1, Math.ceil((expires.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)));
+  const licenseKey = normalizeLicenseKey(input.license_key || generateKeyString());
   const base: Omit<LicenseKeyPayload, 'signature'> = {
     license_key: licenseKey,
     school_name: input.school_name,
     school_code: input.school_code,
     school_uid: input.school_uid,
     license_type: input.license_type,
-    duration_days: Math.max(1, input.duration_days),
+    duration_days: durationDays,
     max_devices: input.max_devices || 1,
     issued_at: now.toISOString(),
     expires_at: expires.toISOString(),
@@ -80,6 +88,12 @@ export const generateLicenseKey = (input: GenerateLicenseKeyInput): LicenseKeyPa
   };
   const signature = signKeyPayload(base);
   return { ...base, signature };
+};
+
+export const resignLicenseKey = (payload: LicenseKeyPayload): LicenseKeyPayload => {
+  const { signature: _old, ...unsigned } = payload;
+  const signature = signKeyPayload(unsigned as Omit<LicenseKeyPayload, 'signature'>);
+  return { ...unsigned, signature };
 };
 
 export const verifyLicenseKey = (key: string, payload: LicenseKeyPayload) => {

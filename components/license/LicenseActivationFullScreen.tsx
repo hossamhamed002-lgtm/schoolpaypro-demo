@@ -1,6 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { activateOfflineLicense, ActivationErrorReason } from '../../license/offlineActivation';
+import { ActivationErrorReason } from '../../license/offlineActivation';
+import { activateLicenseKey } from '../../license/licenseKeyStore';
+import { normalizeLicenseKey } from '../../license/licenseKeyFactory';
 import type { useStore as useStoreHook } from '../../store';
+import { loadLicense } from '../../license/licenseStorage';
 
 type StoreState = ReturnType<typeof useStoreHook>;
 
@@ -59,6 +62,24 @@ const LicenseActivationFullScreen: React.FC<Props> = ({ store }) => {
 
   const submitDisabled = !code.trim() || status === 'loading';
 
+  const mapKeyActivationError = (error: string): ActivationErrorReason => {
+    switch (error) {
+      case 'KEY_EXPIRED':
+        return 'expired_license';
+      case 'KEY_REVOKED':
+      case 'INVALID_SIGNATURE':
+        return 'invalid_signature';
+      case 'KEY_ALREADY_USED':
+        return 'hwid_mismatch';
+      case 'LICENSE_SAVE_FAILED':
+        return 'corrupt_license';
+      case 'PROGRAMMER_DEVICE_BLOCKED':
+        return 'invalid_signature';
+      default:
+        return 'corrupt_license';
+    }
+  };
+
   const errorState = useMemo(() => {
     if (status !== 'error') return null;
     return mapError(errorReason);
@@ -66,19 +87,73 @@ const LicenseActivationFullScreen: React.FC<Props> = ({ store }) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!expectedSchoolUid || !code.trim()) return;
+    if (!code.trim()) return;
     setStatus('loading');
     setErrorReason(null);
-    const licenseKey = code.replace(/\s+/g, '').toUpperCase();
-    const result = activateOfflineLicense(licenseKey, expectedSchoolUid);
-    if (result.ok) {
-      setSuccessExpiresAt(result.license.expires_at || result.license.end_date || null);
-      setStatus('success');
-      store.refreshLicenseStatus?.();
-      return;
+    const licenseKey = normalizeLicenseKey(code);
+    try {
+      const vault = loadLicense();
+      const storedKey = vault?.issued_keys?.find((k) => normalizeLicenseKey(k.license_key) === licenseKey) || null;
+      if ((import.meta as any).env?.DEV) {
+        console.info('[LICENSE][ACT][LOOKUP_FULL]', {
+          input: licenseKey,
+          found: !!storedKey,
+          issued: vault?.issued_keys?.length || 0
+        });
+      }
+      if (!storedKey) {
+        setStatus('error');
+        setErrorReason('invalid_signature');
+        return;
+      }
+      if (storedKey.revoked) {
+        setStatus('error');
+        setErrorReason('invalid_signature');
+        return;
+      }
+      const expiresAt = storedKey.expires_at ? new Date(storedKey.expires_at) : null;
+      if (expiresAt && expiresAt.getTime() < Date.now()) {
+        setStatus('error');
+        setErrorReason('expired_license');
+        return;
+      }
+      const targetSchoolUid = storedKey.school_uid || expectedSchoolUid || '';
+      const isHostEnvironment = (() => {
+        if (typeof window === 'undefined') return false;
+        const host = window.location.hostname || '';
+        const proto = window.location.protocol || '';
+        return host === 'localhost'
+          || host === '127.0.0.1'
+          || host.endsWith('.vercel.app')
+          || proto === 'file:';
+      })();
+      const isFirstRun = !store.activeSchool?.school_uid && !store.licenseGate?.license;
+      const result = activateLicenseKey(storedKey, {
+        school_uid: targetSchoolUid,
+        isHostEnvironment,
+        isFirstRun
+      });
+      if (result.ok) {
+        setSuccessExpiresAt(result.license.expires_at || result.license.end_date || null);
+        setStatus('success');
+        store.refreshLicenseStatus?.();
+        if (typeof (window as any).setEntryMode === 'function') {
+          (window as any).setEntryMode(null);
+        }
+        if (typeof (window as any).onLicenseActivated === 'function') {
+          (window as any).onLicenseActivated();
+        }
+        return;
+      }
+      setStatus('error');
+      setErrorReason(mapKeyActivationError(result.error));
+    } catch (err) {
+      if ((import.meta as any).env?.DEV) {
+        console.error('[LICENSE][ACT][ERROR_FULL]', err);
+      }
+      setStatus('error');
+      setErrorReason('corrupt_license');
     }
-    setStatus('error');
-    setErrorReason(result.reason);
   };
 
   const handleSuccessContinue = () => {
@@ -86,6 +161,9 @@ const LicenseActivationFullScreen: React.FC<Props> = ({ store }) => {
     setErrorReason(null);
     setSuccessExpiresAt(null);
     store.refreshLicenseStatus?.();
+    if (typeof (window as any).setEntryMode === 'function') {
+      (window as any).setEntryMode(null);
+    }
   };
 
   const onRequestSupport = () => {
@@ -107,6 +185,19 @@ const LicenseActivationFullScreen: React.FC<Props> = ({ store }) => {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-8" dir="rtl">
       <div className="w-full max-w-3xl">
+        <div className="flex justify-end mb-3">
+          <button
+            type="button"
+            onClick={() => {
+              if (typeof (window as any).setEntryMode === 'function') {
+                (window as any).setEntryMode('gateway');
+              }
+            }}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold shadow"
+          >
+            ← العودة
+          </button>
+        </div>
         <header className="text-center mb-8 space-y-2">
           <div className="text-3xl font-black text-slate-900">School Pay Pro</div>
           <div className="text-sm text-slate-600">البرنامج غير مُفعّل – برجاء إدخال كود الترخيص</div>

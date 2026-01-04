@@ -3,6 +3,7 @@ import { signLicensePayload } from './licenseFactory';
 import { saveLicense, loadLicense } from './licenseStorage';
 import getHWID from './hwid';
 import { ensureInstallFingerprint } from './installFingerprint';
+import { isDemoMode } from '../src/guards/appMode';
 
 export type ActivationErrorReason =
   | 'invalid_signature'
@@ -50,7 +51,7 @@ const verifySignature = (payload: LicensePayload) => {
 
 export const activateOfflineLicense = (
   licenseKey: string,
-  expectedSchoolUid: string
+  expectedSchoolUid?: string
 ): OfflineActivationResult => {
   const payload = decodeLicenseKey(licenseKey);
   if (!payload) {
@@ -67,7 +68,8 @@ export const activateOfflineLicense = (
   }
   const hwid = getHWID();
   const ifp = ensureInstallFingerprint();
-  if (!payload.school_uid || payload.school_uid !== expectedSchoolUid) {
+  const targetSchoolUid = expectedSchoolUid || payload.school_uid;
+  if (!payload.school_uid || payload.school_uid !== targetSchoolUid) {
     return { ok: false, reason: 'school_mismatch' };
   }
   const endDate = new Date(payload.end_date);
@@ -128,7 +130,7 @@ export const activateOfflineLicense = (
     boundPayload.install_fingerprint = ifp;
   }
 
-  const saved = saveLicense(boundPayload, { allowUpdate: true });
+  const saved = saveLicense(boundPayload);
   if (!saved) {
     return { ok: false, reason: 'corrupt_license' };
   }
@@ -170,7 +172,7 @@ export const renewOfflineLicense = (licenseKey: string, expectedSchoolUid: strin
     end_date: payload.end_date || expiresAt,
     status: 'activated'
   };
-  const saved = saveLicense(renewed, { allowUpdate: true });
+  const saved = saveLicense(renewed);
   if (!saved) return { ok: false, reason: 'corrupt_license' };
   return { ok: true, license: renewed };
 };

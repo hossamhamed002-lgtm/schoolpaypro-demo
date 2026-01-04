@@ -13,6 +13,8 @@ import { load as loadData, save as saveData, remove as removeData, StorageScope 
 import { setRedistributingStudentsFlag } from './services/redistributionGuard';
 import { enforceLicenseOrRedirect } from './license/licenseGuard';
 import { LicenseEnforcementResult } from './license/types';
+import { licenseExists } from './license/licenseStorage';
+import { loadLicense } from './license/licenseStorage';
 import { isDemoMode as isDemo } from './src/guards/appMode';
 import { exportLeadsCSV } from './src/demo/leadTracker';
 
@@ -418,23 +420,30 @@ function seedProgrammerSnapshotIfMissing() {
   if (IS_DEV) console.info('[PROGRAMMER] Seeded system programmer snapshot');
 }
 
-const ensureSchoolUidBinding = (dbSnapshot: any, scopedCode: string): { ok: boolean; db?: any; uid?: string; error?: string } => {
-  if (!dbSnapshot?.schools?.length) {
-    return { ok: false, error: 'NO_SCHOOL' };
+const ensureSchoolUidBinding = (dbSnapshot: any, scopedCode: string, licenseStatus?: LicenseEnforcementResult | null): { ok: boolean; db?: any; uid?: string; error?: string } => {
+  const devLog = (msg: string) => {
+    if (IS_DEV) console.info(msg, scopedCode);
+  };
+  const hasSchools = !!dbSnapshot?.schools?.length;
+  const licenseActive = !!(licenseStatus && (licenseStatus.status === 'valid' || licenseStatus.status === 'trial') && licenseStatus.allowed !== false);
+
+  // defer binding if no school or license not active yet
+  if (!hasSchools || !licenseActive) {
+    devLog(!hasSchools ? '[UID] FIRST_RUN: UID binding skipped (no school snapshot)' : '[UID] UID_BINDING_DEFERRED_UNTIL_LICENSE');
+    return { ok: true, db: dbSnapshot, uid: dbSnapshot?.schools?.[0]?.school_uid };
   }
+
   const map = readUidMap();
   const snapshotUid = dbSnapshot.schools[0].school_uid;
   const mappedUid = map[scopedCode];
 
-  // existing mismatch (real conflict)
-  if (mappedUid && snapshotUid && mappedUid !== snapshotUid) {
+  if (mappedUid && snapshotUid && mappedUid !== snapshotUid && !programmerMode) {
     return { ok: false, error: 'MISMATCH' };
   }
 
   let uid = mappedUid || snapshotUid;
   const nextDb = { ...dbSnapshot, schools: [{ ...dbSnapshot.schools[0] }] };
 
-  // if no UID yet, generate and assign
   if (!uid) {
     uid = generateUid();
     nextDb.schools[0].school_uid = uid;
@@ -442,18 +451,14 @@ const ensureSchoolUidBinding = (dbSnapshot: any, scopedCode: string): { ok: bool
     nextDb.schools[0].school_uid = uid;
   }
 
-  // ensure mapping exists
-  if (demoMode) {
-    return { ok: true, db: nextDb, uid };
-  }
-  if (uid && map[scopedCode] !== uid) {
+  if (!demoMode && uid && map[scopedCode] !== uid) {
     try {
       localStorage.setItem(UID_MAP_KEY, JSON.stringify({ ...map, [scopedCode]: uid }));
     } catch {
       // ignore
     }
   }
-
+  devLog('[UID] UID_BINDING_EXECUTED');
   return { ok: true, db: nextDb, uid };
 };
 
@@ -667,7 +672,7 @@ const describeSoftBlock = (reason: string | null | undefined, lang: 'ar' | 'en')
 
       const scopedCode = normalizeSchoolCode(savedCode);
       const { db: loadedDb, yearId } = loadDbForSchool(scopedCode);
-      const ensured = ensureSchoolUidBinding(loadedDb, scopedCode);
+      const ensured = ensureSchoolUidBinding(loadedDb, scopedCode, licenseGate);
       if (!ensured.ok) return;
 
       setDb(ensured.db);
@@ -934,6 +939,18 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
       return { ok: true, result: gate };
     }
     if (!activeSchoolUid) {
+      const license = loadLicense();
+      if (license) {
+        const gate = {
+          allowed: false,
+          status: 'missing',
+          reason: 'missing_school_uid',
+          activationRequired: true
+        } as LicenseEnforcementResult;
+        setLicenseGate(gate);
+        setLicenseChecked(true);
+        return { ok: false, result: gate };
+      }
       return { ok: false, reason: 'missing_school_uid' };
     }
     const guard = evaluateLicenseGate(activeSchoolUid);
@@ -1071,7 +1088,7 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     resetStoreStateForSchoolSwitch();
     const scopedCode = normalizeSchoolCode(code);
     const { db: nextDb, yearId, scopedCode: resolved } = loadDbForSchool(scopedCode);
-    const ensured = ensureSchoolUidBinding(nextDb, scopedCode);
+    const ensured = ensureSchoolUidBinding(nextDb, scopedCode, licenseGate);
     if (!ensured.ok) {
       if (IS_DEV) console.error('[SCHOOLS] UID mismatch, aborting bind', { code: scopedCode });
       return;
@@ -1091,13 +1108,27 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     resetStoreStateForSchoolSwitch();
     const scopedCode = normalizeSchoolCode(code);
     const { db: nextDb, yearId } = loadDbForSchool(scopedCode);
-    const ensured = ensureSchoolUidBinding(nextDb, scopedCode);
+    const ensured = ensureSchoolUidBinding(nextDb, scopedCode, licenseGate);
     if (!ensured.ok) {
       if (IS_DEV) console.error('[SCHOOLS] UID mismatch, aborting bind', { code: scopedCode });
       return { ok: false, error: lang === 'ar' ? 'فشل تحميل المدرسة' : 'Failed to load school' };
     }
-    if (!ensured.db?.schools?.length) {
+    const isFirstRunNewSchool = !ensured.db?.schools?.length && !licenseExists() && !demoMode && !programmerMode;
+    if (!ensured.db?.schools?.length && !isFirstRunNewSchool) {
       return { ok: false, error: lang === 'ar' ? 'لا توجد مدرسة مسجلة لهذا الكود' : 'No school registered for this code' };
+    }
+    if (isFirstRunNewSchool) {
+      const tempDb = {
+        ...cloneEmptyState(),
+        schools: [{ School_Code: scopedCode, Allowed_Modules: defaultSchoolModules() }]
+      };
+      setDb(tempDb);
+      setWorkingYearId('');
+      setActiveSchoolCode(scopedCode);
+      setSchoolCode(scopedCode);
+      setLicenseGate({ allowed: false, status: 'missing', reason: 'missing_license', activationRequired: true } as LicenseEnforcementResult);
+      setLicenseChecked(true);
+      return { ok: false, error: lang === 'ar' ? 'مطلوب تفعيل الترخيص' : 'License activation required' };
     }
     setActiveSchoolCode(scopedCode);
     writeSetting(SCHOOL_CODE_KEY, scopedCode);
@@ -1244,13 +1275,27 @@ const rebindSchoolUID = (schoolCode: string, targetUID: string) => {
     resetStoreStateForSchoolSwitch();
     const scopedCode = normalizeSchoolCode(code);
     const { db: nextDb, yearId } = loadDbForSchool(scopedCode);
-    const ensured = ensureSchoolUidBinding(nextDb, scopedCode);
+    const ensured = ensureSchoolUidBinding(nextDb, scopedCode, licenseGate);
     if (!ensured.ok) {
       if (IS_DEV) console.error('[SCHOOLS] UID mismatch, aborting bind', { code: scopedCode });
       return { ok: false, error: lang === 'ar' ? 'فشل تحميل المدرسة' : 'Failed to load school' };
     }
-    if (!nextDb?.schools?.length) {
+    const isFirstRunNewSchool = !nextDb?.schools?.length && !licenseExists() && !demoMode && !programmerMode;
+    if (!nextDb?.schools?.length && !isFirstRunNewSchool) {
       return { ok: false, error: lang === 'ar' ? 'لا توجد مدرسة مسجلة لهذا الكود' : 'No school registered for this code' };
+    }
+    if (isFirstRunNewSchool) {
+      const tempDb = {
+        ...cloneEmptyState(),
+        schools: [{ School_Code: scopedCode, Allowed_Modules: defaultSchoolModules() }]
+      };
+      setDb(tempDb);
+      setWorkingYearId('');
+      setActiveSchoolCode(scopedCode);
+      setSchoolCode(scopedCode);
+      setLicenseGate({ allowed: false, status: 'missing', reason: 'missing_license', activationRequired: true } as LicenseEnforcementResult);
+      setLicenseChecked(true);
+      return { ok: false, error: lang === 'ar' ? 'مطلوب تفعيل الترخيص' : 'License activation required' };
     }
     const user = nextDb.users?.find((u: any) => u.Username === username && u.Password_Hash === password && u.Is_Active !== false);
     if (!user) {

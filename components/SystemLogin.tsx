@@ -21,6 +21,7 @@ interface SystemLoginProps {
   onProgrammerLogin: (username: string) => { ok: boolean; error?: string };
   onDemoLogin?: () => { ok: boolean; error?: string };
   defaultSchoolCode?: string;
+  defaultProgrammerOpen?: boolean;
 }
 
 const SystemLogin: React.FC<SystemLoginProps> = ({
@@ -30,14 +31,15 @@ const SystemLogin: React.FC<SystemLoginProps> = ({
   onCancelOtp,
   onProgrammerLogin,
   onDemoLogin,
-  defaultSchoolCode = ''
+  defaultSchoolCode = '',
+  defaultProgrammerOpen = false
 }) => {
   const [schoolCode, setSchoolCode] = useState(defaultSchoolCode);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [schoolLogo, setSchoolLogo] = useState<string | null>(null);
-  const [programmerOpen, setProgrammerOpen] = useState(false);
+  const [programmerOpen, setProgrammerOpen] = useState(!!defaultProgrammerOpen);
   const [programmerUser, setProgrammerUser] = useState('');
   const [programmerPass, setProgrammerPass] = useState('');
   const [programmerError, setProgrammerError] = useState('');
@@ -84,6 +86,10 @@ const SystemLogin: React.FC<SystemLoginProps> = ({
     const logo = getSchoolLogoByCode(schoolCode);
     setSchoolLogo(logo);
   }, [schoolCode]);
+
+  useEffect(() => {
+    setProgrammerOpen(!!defaultProgrammerOpen);
+  }, [defaultProgrammerOpen]);
 
   const year = new Date().getFullYear();
   const programmerExists = useMemo(() => !!localStorage.getItem(PROGRAMMER_KEY), []);

@@ -4,15 +4,17 @@ export interface LicensePayload {
   school_uid: string;
   device_fingerprint: string;
   install_fingerprint?: string;
+  license_key?: string;
   license_type: LicenseType;
   start_date: string;
   end_date: string;
   expires_at?: string;
   activated_at?: string;
   renewed_at?: string;
-  status?: 'activated' | 'issued';
+  status?: 'activated' | 'issued' | 'key_vault';
   last_verified_at?: string;
   last_checked_at?: string;
+  issued_keys?: LicenseKeyPayload[];
   signature: string;
 }
 

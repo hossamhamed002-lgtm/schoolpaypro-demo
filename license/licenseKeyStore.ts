@@ -1,11 +1,17 @@
 import { isDemoMode } from '../src/guards/appMode';
-import { generateLicenseKey, verifyLicenseKey } from './licenseKeyFactory';
+import { generateLicenseKey, normalizeLicenseKey, verifyLicenseKey } from './licenseKeyFactory';
 import { saveLicense } from './licenseStorage';
 import getHWID from './hwid';
 import { LicenseKeyPayload, LicenseKeyStatus, LicensePayload } from './types';
 import { signLicensePayload } from './licenseFactory';
+import { loadLicense } from './licenseStorage';
+import { getNodeFs, getNodeOs, getNodePath, isNodeRuntime } from './runtime';
 
 const STORAGE_KEY = 'EDULOGIC_PROGRAMMER_LICENSE_KEYS_V1';
+const IS_DEV = Boolean((import.meta as any).env?.DEV);
+const devLog = (...args: any[]) => {
+  if (IS_DEV) console.info(...args);
+};
 
 type FilterStatus = LicenseKeyStatus | 'all';
 
@@ -46,54 +52,131 @@ export const listLicenseKeys = (status: FilterStatus = 'all') => {
 };
 
 export const saveLicenseKey = (payload: LicenseKeyPayload) => {
+  const normalized = { ...payload, license_key: normalizeLicenseKey(payload.license_key) };
   const list = readStore();
-  if (list.some((k) => k.license_key === payload.license_key)) {
-    const next = list.map((k) => (k.license_key === payload.license_key ? payload : k));
+  if (list.some((k) => normalizeLicenseKey(k.license_key) === normalized.license_key)) {
+    const next = list.map((k) => (normalizeLicenseKey(k.license_key) === normalized.license_key ? normalized : k));
     writeStore(next);
-    return payload;
+    return normalized;
   }
-  writeStore([...list, payload]);
-  return payload;
+  writeStore([...list, normalized]);
+  return normalized;
+};
+
+const LOCAL_LICENSE_KEY = '__EDULOGIC_LICENSE_V1';
+const LOCAL_LICENSE_KEY_ALT = 'EDULOGIC_LICENSE_V1';
+
+const clearPersistedLicense = () => {
+  try {
+    localStorage.removeItem(LOCAL_LICENSE_KEY);
+    localStorage.removeItem(LOCAL_LICENSE_KEY_ALT);
+  } catch {
+    // ignore
+  }
+  if (isNodeRuntime) {
+    const fs = getNodeFs();
+    const os = getNodeOs();
+    const path = getNodePath();
+    if (fs && os && path) {
+      try {
+        const filePath = path.join(os.homedir(), '.edulogic_license_v1');
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+};
+
+const persistIssuedKey = (payload: LicenseKeyPayload): { persisted: boolean; count: number } => {
+  const hwid = getHWID();
+  const vault = loadLicense();
+  const issued = vault?.issued_keys || [];
+  const nextIssued = [
+    ...issued.filter((k) => normalizeLicenseKey(k.license_key) !== normalizeLicenseKey(payload.license_key)),
+    payload
+  ];
+  const base: LicensePayload = vault && vault.status === 'key_vault'
+    ? vault
+    : {
+        school_uid: vault?.school_uid || payload.school_uid || 'unbound',
+        device_fingerprint: vault?.device_fingerprint || hwid,
+        license_type: payload.license_type === 'trial-extension' ? 'trial' : 'paid',
+        start_date: payload.issued_at || new Date().toISOString(),
+        end_date: payload.expires_at || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        expires_at: payload.expires_at || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        status: 'key_vault',
+        last_verified_at: new Date().toISOString(),
+        signature: ''
+      };
+  const vaultPayload: LicensePayload = {
+    ...base,
+    status: 'key_vault',
+    issued_keys: nextIssued,
+    last_verified_at: new Date().toISOString()
+  };
+  vaultPayload.signature = signLicensePayload({
+    school_uid: vaultPayload.school_uid,
+    device_fingerprint: vaultPayload.device_fingerprint,
+    license_type: vaultPayload.license_type,
+    start_date: vaultPayload.start_date,
+    end_date: vaultPayload.end_date,
+    last_verified_at: vaultPayload.last_verified_at || ''
+  });
+  clearPersistedLicense();
+  const persisted = saveLicense(vaultPayload);
+  if (IS_DEV) {
+    console.info('[LICENSE][VAULT][WRITE]', {
+      ok: persisted,
+      keys: nextIssued.length,
+      latest: payload.license_key
+    });
+  }
+  return { persisted, count: nextIssued.length };
 };
 
 export const createAndStoreLicenseKey = (input: Parameters<typeof generateLicenseKey>[0]) => {
   const payload = generateLicenseKey(input);
   saveLicenseKey(payload);
+  try {
+    const { count } = persistIssuedKey(payload);
+    devLog('[LICENSE][GEN]', {
+      key: payload.license_key,
+      sig: payload.signature?.slice(0, 12),
+      school_uid: payload.school_uid,
+      expires_at: payload.expires_at,
+      vault_keys: count
+    });
+  } catch {
+    // best-effort only
+  }
   return payload;
 };
 
 export const revokeLicenseKey = (license_key: string) => {
+  const target = normalizeLicenseKey(license_key);
   const list = readStore();
-  const next = list.map((k) => (k.license_key === license_key ? { ...k, revoked: true } : k));
+  const next = list.map((k) => (normalizeLicenseKey(k.license_key) === target ? { ...k, revoked: true } : k));
   writeStore(next);
-  return next.find((k) => k.license_key === license_key) || null;
+  return next.find((k) => normalizeLicenseKey(k.license_key) === target) || null;
 };
 
 export const findLicenseKey = (license_key: string) =>
-  readStore().find((k) => k.license_key === license_key) || null;
+  readStore().find((k) => normalizeLicenseKey(k.license_key) === normalizeLicenseKey(license_key)) || null;
 
-export const markLicenseKeyActivated = (
-  license_key: string,
-  params: { hwid: string; school_uid: string; activated_at?: string }
-) => {
+export const findLicenseKeyByCode = (license_key: string) => {
+  const target = normalizeLicenseKey(license_key);
+  if (!target) return null;
+  return readStore().find((k) => normalizeLicenseKey(k.license_key) === target) || null;
+};
+
+export const markLicenseKeyActivated = (license_key: string) => {
+  const target = normalizeLicenseKey(license_key);
   const list = readStore();
-  let updated: LicenseKeyPayload | null = null;
-  const next = list.map((k) => {
-    if (k.license_key !== license_key) return k;
-    if (k.activated && k.bound_hwid && k.bound_hwid !== params.hwid) return k;
-    updated = {
-      ...k,
-      activated: true,
-      activated_at: params.activated_at || new Date().toISOString(),
-      bound_hwid: params.hwid,
-      school_code: k.school_code,
-      school_uid: k.school_uid || params.school_uid,
-      revoked: k.revoked
-    };
-    return updated;
-  });
-  if (updated) writeStore(next);
-  return updated;
+  const exists = list.some((k) => normalizeLicenseKey(k.license_key) === target);
+  return exists ? list.find((k) => normalizeLicenseKey(k.license_key) === target) || null : null;
 };
 
 type ActivationResult =
@@ -102,9 +185,16 @@ type ActivationResult =
 
 export const activateLicenseKey = (
   payload: LicenseKeyPayload,
-  options: { school_uid: string; school_name?: string; hwid?: string; isProgrammerDevice?: boolean; allowProgrammerBypass?: boolean } // programmer devices blocked by default
+  options: { school_uid: string; school_name?: string; hwid?: string; isProgrammerDevice?: boolean; allowProgrammerBypass?: boolean; isHostEnvironment?: boolean; isFirstRun?: boolean } // programmer devices blocked by default
 ): ActivationResult => {
   const hwid = options.hwid || getHWID();
+  const normalizedKey = normalizeLicenseKey(payload.license_key);
+  devLog('[LICENSE][ACTIVATE][START]', {
+    key: normalizedKey,
+    school_uid: payload.school_uid,
+    expires_at: payload.expires_at,
+    signature: payload.signature?.slice(0, 12)
+  });
 
   const programmerFlag = (() => {
     try {
@@ -115,12 +205,17 @@ export const activateLicenseKey = (
   })();
 
   const programmerDevice = options.isProgrammerDevice ?? !!programmerFlag;
+  const allowProgrammerActivate =
+    programmerDevice &&
+    (options.allowProgrammerBypass || isDemoMode() || options.isHostEnvironment || options.isFirstRun);
 
-  if (programmerDevice && !options.allowProgrammerBypass) {
+  if (programmerDevice && !allowProgrammerActivate) {
+    devLog('[LICENSE][ACTIVATE][BLOCK] programmer device');
     return { ok: false, error: 'PROGRAMMER_DEVICE_BLOCKED' };
   }
 
   if (!verifyLicenseKey(payload.license_key, payload)) {
+    devLog('[LICENSE][ACTIVATE][FAIL] signature mismatch');
     return { ok: false, error: 'INVALID_SIGNATURE' };
   }
 
@@ -130,35 +225,51 @@ export const activateLicenseKey = (
   }
   const now = new Date();
   if (new Date(payload.expires_at).getTime() < now.getTime()) {
+    devLog('[LICENSE][ACTIVATE][FAIL] expired');
     return { ok: false, error: 'KEY_EXPIRED' };
   }
   if (payload.activated) {
+    devLog('[LICENSE][ACTIVATE][FAIL] already activated');
     return { ok: false, error: 'KEY_ALREADY_ACTIVATED' };
   }
 
   const start = now.toISOString();
-  const end = new Date(now.getTime() + Math.max(1, payload.duration_days) * 24 * 60 * 60 * 1000).toISOString();
+  const parsedExpiry = payload.expires_at ? new Date(payload.expires_at) : null;
+  const expiryDate = parsedExpiry && !Number.isNaN(parsedExpiry.getTime())
+    ? parsedExpiry
+    : new Date(now.getTime() + Math.max(1, payload.duration_days) * 24 * 60 * 60 * 1000);
+  const end = expiryDate.toISOString();
+  const vault = loadLicense();
+  const issuedKeys = vault?.issued_keys || [];
+  const mergedKeys = (() => {
+    const others = issuedKeys.filter((k) => normalizeLicenseKey(k.license_key) !== normalizeLicenseKey(payload.license_key));
+    return [
+      ...others,
+      payload
+    ];
+  })();
   const license: LicensePayload = {
     school_uid: options.school_uid,
     device_fingerprint: hwid,
     license_type: payload.license_type === 'paid' ? 'paid' : 'trial',
     start_date: start,
     end_date: end,
+    expires_at: end,
+    license_key: payload.license_key,
+    issued_keys: mergedKeys,
     last_verified_at: start,
     signature: ''
   };
   license.signature = signLicensePayload({ ...license });
 
-  const saved = saveLicense(license, { allowUpdate: true });
+  clearPersistedLicense();
+  const saved = saveLicense(license);
   if (!saved) {
+    devLog('[LICENSE][ACTIVATE][FAIL] save failed');
     return { ok: false, error: 'LICENSE_SAVE_FAILED' };
   }
 
-  const updatedKey = markLicenseKeyActivated(payload.license_key, {
-    hwid,
-    school_uid: options.school_uid,
-    activated_at: start
-  });
+  const updatedKey = markLicenseKeyActivated(payload.license_key);
 
   return { ok: true, license, key: updatedKey || payload };
 };

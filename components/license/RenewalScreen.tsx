@@ -67,6 +67,15 @@ const RenewalScreen: React.FC<Props> = ({ store, onClose }) => {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-8" dir="rtl">
       <div className="w-full max-w-3xl">
+        <div className="flex justify-end mb-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold shadow"
+          >
+            ← العودة
+          </button>
+        </div>
         <header className="text-center mb-8 space-y-2">
           <div className="text-3xl font-black text-slate-900">🔁 تجديد ترخيص School Pay Pro</div>
           <div className="text-sm text-slate-600">الترخيص منتهي. برجاء إدخال كود التجديد.</div>

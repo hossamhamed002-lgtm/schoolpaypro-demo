@@ -29,6 +29,8 @@ import { rememberActivationIntent, hasActivationBeenShown } from './src/guards/a
 import { runReleaseVerification } from './src/releaseVerifier';
 import RenewalScreen from './components/license/RenewalScreen';
 import LicenseBlockedScreen from './components/license/LicenseBlockedScreen';
+import EntryGatewayScreen from './components/EntryGatewayScreen';
+import { licenseExists } from './license/licenseStorage';
 
 type TabId =
   | 'dashboard'
@@ -50,7 +52,19 @@ const App: React.FC = () => {
       return false;
     }
   })();
+  const isDesktopEnvLocal = React.useCallback(() => {
+    if (typeof window === 'undefined') return false;
+    const w = window as any;
+    const ua = (navigator?.userAgent || '').toLowerCase();
+    const isElectron = !!w.process?.versions?.electron || !!w.process?.type;
+    const isHosted = typeof window.location?.hostname === 'string' && window.location.hostname.includes('vercel.app');
+    const isMobileUA = ua.includes('mobile');
+    return isElectron || (!isHosted && !isMobileUA);
+  }, []);
   const [renewalMode, setRenewalMode] = React.useState(false);
+  const [entryMode, setEntryMode] = React.useState<'gateway' | 'activate' | 'new' | 'renew' | null>(null);
+  const [programmerShortcut, setProgrammerShortcut] = React.useState(false);
+  const [skipGatewayOnce, setSkipGatewayOnce] = React.useState(false);
   const releaseCheck = React.useMemo(() => runReleaseVerification({ programmerHint, allowTrials: false }), [programmerHint]);
   const store = useStore();
   const { t } = store;
@@ -75,6 +89,50 @@ const App: React.FC = () => {
       console.info('🧪 Demo Mode Active');
     }
   }, []);
+
+  React.useEffect(() => {
+    (window as any).setEntryMode = (mode: typeof entryMode) => setEntryMode(mode);
+    (window as any).onLicenseActivated = () => setSkipGatewayOnce(true);
+    return () => {
+      if ((window as any).setEntryMode === setEntryMode) {
+        delete (window as any).setEntryMode;
+      }
+      if ((window as any).onLicenseActivated) {
+        delete (window as any).onLicenseActivated;
+      }
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (store.licenseStatus?.allowed && entryMode) {
+      setEntryMode(null);
+    }
+  }, [store.licenseStatus?.allowed, entryMode]);
+
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!isDesktopEnvLocal() || isDemoMode() || store.isProgrammer) return;
+      const key = (e.key || '').toLowerCase();
+      const modPrimary = e.ctrlKey || e.metaKey;
+      const modSecondary = e.shiftKey || e.altKey;
+      if (key === 'p' && modPrimary && modSecondary) {
+        setEntryMode(null);
+        setRenewalMode(false);
+        setProgrammerShortcut(true);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [store, isDesktopEnvLocal]);
+
+  React.useEffect(() => {
+    if (store.currentUser) {
+      setProgrammerShortcut(false);
+    }
+    if (store.currentUser || store.activeSchool) {
+      setSkipGatewayOnce(false);
+    }
+  }, [store.currentUser]);
 
   const softBlockCopy = React.useMemo(() => {
     if (!store.isSoftBlocked) return null;
@@ -112,6 +170,13 @@ const App: React.FC = () => {
 
   const pathIsDemo = typeof window !== 'undefined' && window.location.pathname.startsWith('/demo');
   const pathIsAdmin = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
+  const hasStoredLicense = React.useMemo(() => {
+    try {
+      return licenseExists();
+    } catch {
+      return false;
+    }
+  }, []);
   const activationReason = store.licenseStatus?.reason || store.licenseStatus?.status;
   const shouldShowActivation =
     !!(
@@ -123,7 +188,8 @@ const App: React.FC = () => {
         store.licenseStatus.activationRequired
         || store.licenseStatus.allowed === false
       )
-      && ['expired', 'hwid_mismatch', 'missing_license', 'missing'].includes(String(activationReason))
+      && ['expired', 'hwid_mismatch', 'missing_license', 'missing', 'missing_school_uid'].includes(String(activationReason))
+      && !skipGatewayOnce
     ) || (!!releaseCheck?.fatal && !store.isProgrammer);
   const shouldShowRenewal = shouldShowActivation && (renewalMode || store.licenseStatus?.status === 'expired' || store.licenseStatus?.reason === 'expired');
   const shouldHardBlock = !!(
@@ -132,6 +198,13 @@ const App: React.FC = () => {
     && !store.isProgrammer
     && !isDemoMode()
   );
+  const shouldShowGateway = !store.isProgrammer
+    && !store.currentUser
+    && !pathIsAdmin
+    && !isDemoMode()
+    && (!store.licenseStatus || store.licenseStatus.allowed === false || store.licenseStatus.status === 'missing')
+    && !hasStoredLicense
+    && !skipGatewayOnce;
 
   const DemoBadge = () => (
     isDemoMode() ? (
@@ -292,9 +365,82 @@ const App: React.FC = () => {
     return <AdminLicensesPage />;
   }
 
-  if (!store.currentUser && shouldHardBlock) {
+  if (!store.currentUser && programmerShortcut) {
     return (
-      <LicenseBlockedScreen store={store} onRenew={() => setRenewalMode(true)} />
+      <SystemLogin
+        onLogin={store.login}
+        onVerifyOtp={store.verifyOtpCode}
+        onResendOtp={store.resendOtpCode}
+        onCancelOtp={store.cancelOtp}
+        onProgrammerLogin={store.loginProgrammer}
+        defaultSchoolCode={store.schoolCode}
+        defaultProgrammerOpen
+      />
+    );
+  }
+
+  if (!store.currentUser && shouldShowGateway) {
+    if (entryMode === 'activate') {
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => setEntryMode('gateway')}
+            className="fixed top-4 left-4 z-50 px-4 py-2 rounded-xl bg-white/80 border border-slate-200 text-slate-700 text-sm font-bold shadow"
+          >
+            ← العودة
+          </button>
+          <LicenseActivationFullScreen store={store} />
+        </>
+      );
+    }
+    if (entryMode === 'renew') {
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => setEntryMode('gateway')}
+            className="fixed top-4 left-4 z-50 px-4 py-2 rounded-xl bg-white/80 border border-slate-200 text-slate-700 text-sm font-bold shadow"
+          >
+            ← العودة
+          </button>
+          <RenewalScreen store={store} onClose={() => setEntryMode('gateway')} />
+        </>
+      );
+    }
+    if (entryMode === 'new') {
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => setEntryMode('gateway')}
+            className="fixed top-4 left-4 z-50 px-4 py-2 rounded-xl bg-white/80 border border-slate-200 text-slate-700 text-sm font-bold shadow"
+          >
+            ← العودة
+          </button>
+          <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-10" dir="rtl">
+            <div className="bg-white rounded-2xl shadow-xl border border-slate-100 p-8 max-w-2xl space-y-4 text-center">
+              <div className="text-2xl font-black text-slate-900">طلب كود ترخيص جديد</div>
+              <p className="text-sm text-slate-600">تواصل معنا للحصول على كود ترخيص جديد.</p>
+              <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
+                <a href="https://wa.me/201094981227" target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-indigo-600 text-white text-sm font-bold shadow hover:bg-indigo-700">WhatsApp</a>
+                <a href="mailto:hossamhamed002@gmail.com?subject=License%20Request%20-%20SchoolPay%20Pro" className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-slate-200 text-slate-700 text-sm font-bold hover:border-indigo-300 hover:text-indigo-800">Email</a>
+                <button type="button" onClick={() => setEntryMode('gateway')} className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-slate-500 text-sm font-bold hover:text-slate-700">العودة</button>
+              </div>
+            </div>
+          </div>
+        </>
+      );
+    }
+    return (
+      <EntryGatewayScreen
+        onCurrent={() => setEntryMode('activate')}
+        onNew={() => setEntryMode('new')}
+        onRenew={() => setEntryMode('renew')}
+        onDemo={() => {
+          window.location.href = 'https://schoolpaypro-demo.vercel.app/demo';
+        }}
+      />
     );
   }
 

@@ -68,6 +68,15 @@ export const validateLicense = (expectedSchoolUid?: string): LicenseValidationRe
     return { status: 'invalid', license, reason: 'bad_signature' };
   }
 
+  if (license.status === 'key_vault') {
+    return {
+      status: 'missing',
+      license: null,
+      trialAvailable: !hasTrialBeenUsed(getHWID()),
+      reason: 'missing_license'
+    };
+  }
+
   const hwid = getHWID();
   if (license.device_fingerprint !== hwid) {
     return { status: 'blocked', license, reason: 'hwid_mismatch' };
