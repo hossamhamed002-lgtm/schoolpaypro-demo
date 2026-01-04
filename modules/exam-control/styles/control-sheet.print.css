@@ -1,0 +1,41 @@
+@page {
+  size: A3 landscape;
+  margin: 10mm;
+}
+
+@media print {
+  body {
+    direction: rtl;
+    unicode-bidi: plaintext;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-family: 'Cairo', 'Noto Naskh Arabic', sans-serif;
+  }
+
+  /* إخفاء كل شيء ما عدا منطقة الشيت */
+  body * {
+    visibility: hidden !important;
+  }
+  #sheet-content-area,
+  #sheet-content-area * {
+    visibility: visible !important;
+  }
+  #sheet-content-area {
+    position: absolute !important;
+    inset: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: auto !important;
+    height: auto !important;
+  }
+
+  tr,
+  .control-row {
+    page-break-inside: avoid !important;
+  }
+
+  .signature-section {
+    page-break-inside: avoid;
+    page-break-before: auto;
+  }
+}

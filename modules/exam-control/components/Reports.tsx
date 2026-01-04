@@ -235,6 +235,124 @@ const Reports: React.FC<ReportsProps> = ({
     exportUtils.exportToPDF(target.id, fileLabel, printOrientation, 5, format);
   };
   const handleSheetPrint = () => {
+    if (reportType === 'table') {
+      const source = document.getElementById('sheet-content-area');
+      if (!source) {
+        window.print();
+        return;
+      }
+
+      const mode: 'summary' | 'midterm' | 'final' =
+        sheetMode === 'annual' ? 'summary' : sheetMode === 'term1' ? 'midterm' : 'final';
+      const pageSize = mode === 'summary' ? 'A3 portrait' : 'A3 landscape';
+      const tableLayout = mode === 'summary' ? 'auto' : 'fixed';
+      const baseFont = mode === 'summary' ? '12px' : '11px';
+      const nameWidthPct = mode === 'summary' ? 32 : 20;
+      const seatWidthPct = mode === 'summary' ? 10 : 8;
+      const idxWidthPct = mode === 'summary' ? 6 : 5;
+
+      const printRoot = document.createElement('div');
+      printRoot.id = 'control-sheet-print-root';
+      printRoot.style.position = 'absolute';
+      printRoot.style.inset = '0';
+      printRoot.style.zIndex = '2147483647';
+      printRoot.style.background = 'white';
+      printRoot.dataset.sheetMode = mode;
+
+      const clone = source.cloneNode(true) as HTMLElement;
+      clone.id = 'control-sheet-print-clone';
+      clone.style.margin = '0 auto';
+      clone.style.width = '100%';
+      clone.style.maxWidth = 'none';
+      clone.style.height = 'auto';
+      clone.style.maxHeight = 'none';
+      clone.style.overflow = 'visible';
+      printRoot.appendChild(clone);
+
+      const style = document.createElement('style');
+      style.media = 'print';
+      style.textContent = `
+        @page { size: ${pageSize}; margin: 10mm; }
+        html, body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        body > *:not(#control-sheet-print-root) { display: none !important; }
+        #control-sheet-print-root { display: block !important; }
+        #control-sheet-print-root table { page-break-after: auto; page-break-before: auto; page-break-inside: auto; width: 100% !important; table-layout: fixed; font-size: ${baseFont}; direction: rtl; }
+        #control-sheet-print-root th, #control-sheet-print-root td { font-size: ${baseFont}; line-height: 1.35; word-break: break-word; white-space: normal; text-align: center; }
+        #control-sheet-print-root tr { page-break-inside: avoid !important; }
+        #control-sheet-print-root thead { display: table-header-group; }
+        #control-sheet-print-root tfoot { display: table-footer-group; }
+        #control-sheet-print-root .sheet-screen-header { display: none !important; }
+        #control-sheet-print-root .print-hidden-header { display: none !important; }
+        /* ضبط عرض الأعمدة الأولى (م / اسم) لتقليل تمدد الاسم مع السماح بالالتفاف حسب وضع الشيت */
+        #control-sheet-print-root th:first-child,
+        #control-sheet-print-root td:first-child { width: ${idxWidthPct}%; max-width: ${idxWidthPct}%; white-space: nowrap; }
+        #control-sheet-print-root th:nth-child(2),
+        #control-sheet-print-root td:nth-child(2) {
+          width: ${nameWidthPct}%;
+          max-width: ${nameWidthPct}%;
+          white-space: normal;
+          word-break: break-word;
+        }
+        /* توازن الأعمدة للملخص (summary) فقط */
+        #control-sheet-print-root[data-sheet-mode="summary"] table { table-layout: fixed !important; }
+        #control-sheet-print-root[data-sheet-mode="summary"] th,
+        #control-sheet-print-root[data-sheet-mode="summary"] td { min-width: 110px; }
+        #control-sheet-print-root[data-sheet-mode="summary"] th:first-child,
+        #control-sheet-print-root[data-sheet-mode="summary"] td:first-child { width: ${idxWidthPct}% !important; max-width: ${idxWidthPct}% !important; }
+        #control-sheet-print-root[data-sheet-mode="summary"] th:nth-child(2),
+        #control-sheet-print-root[data-sheet-mode="summary"] td:nth-child(2) { width: ${nameWidthPct}% !important; max-width: ${nameWidthPct}% !important; }
+        #control-sheet-print-root[data-sheet-mode="summary"] th:nth-child(3),
+        #control-sheet-print-root[data-sheet-mode="summary"] td:nth-child(3) { width: ${seatWidthPct}% !important; max-width: ${seatWidthPct}% !important; white-space: nowrap; }
+        #control-sheet-print-root[data-sheet-mode="summary"] th:nth-last-child(2),
+        #control-sheet-print-root[data-sheet-mode="summary"] td:nth-last-child(2) { width: 15% !important; max-width: 15% !important; }
+        #control-sheet-print-root[data-sheet-mode="summary"] th:last-child,
+        #control-sheet-print-root[data-sheet-mode="summary"] td:last-child { width: 12% !important; max-width: 12% !important; }
+      `;
+
+      // Synchronize row heights across split tables for detailed modes to avoid mismatch when concatenating horizontally
+      const syncRowHeights = (rootEl: HTMLElement) => {
+        if (mode === 'summary') return;
+        const pages = Array.from(rootEl.querySelectorAll<HTMLElement>('.official-sheet-page'));
+        pages.forEach((page) => {
+          const tables = Array.from(page.querySelectorAll<HTMLTableElement>('table'));
+          if (tables.length < 2) return;
+          const ref = tables[0];
+          const refRows = Array.from(ref.querySelectorAll<HTMLTableRowElement>('tbody tr'));
+          tables.slice(1).forEach((tbl) => {
+            const rows = Array.from(tbl.querySelectorAll<HTMLTableRowElement>('tbody tr'));
+            refRows.forEach((r, idx) => {
+              const targetRow = rows[idx];
+              if (!targetRow) return;
+              const h = r.getBoundingClientRect().height;
+              (targetRow as HTMLElement).style.height = `${h}px`;
+              (targetRow as HTMLElement).style.minHeight = `${h}px`;
+            });
+          });
+        });
+      };
+
+      const prevModeAttr = document.body.dataset.sheetMode;
+      document.body.dataset.sheetMode = mode;
+
+      document.body.appendChild(printRoot);
+      document.head.appendChild(style);
+      syncRowHeights(printRoot);
+
+      const cleanup = () => {
+        window.removeEventListener('afterprint', cleanup);
+        style.remove();
+        printRoot.remove();
+        if (prevModeAttr !== undefined) {
+          document.body.dataset.sheetMode = prevModeAttr;
+        } else {
+          delete document.body.dataset.sheetMode;
+        }
+      };
+      window.addEventListener('afterprint', cleanup);
+      window.print();
+      return;
+    }
+
     const target = getPrintTarget();
     if (target) {
       const headerModel = {
@@ -249,7 +367,7 @@ const Reports: React.FC<ReportsProps> = ({
           `التاريخ: ${new Date().toLocaleDateString('ar-EG')}`
         ]
       };
-      exportUtils.print(target.id, printOrientation, 5, headerModel);
+      exportUtils.print(target.id, target.orientation, 5, headerModel);
       return;
     }
     window.print();
@@ -475,22 +593,22 @@ const Reports: React.FC<ReportsProps> = ({
         )}
         {reportType === 'table' && (
           <div
-            className={
+              className={
               isSheetOnly && sheetStyle === 'a3'
                 ? 'rounded-3xl border border-gray-200 bg-white shadow-sm overflow-hidden'
                 : ''
             }
           >
             {isSheetOnly && sheetStyle === 'a3' && (
-              <div className="h-4 bg-gradient-to-b from-gray-200 to-gray-100" />
+              <div className="h-4 bg-gradient-to-b from-gray-200 to-gray-100 sheet-screen-header print:hidden" />
             )}
             <div
               id={reportType === 'table' ? 'sheet-content-area' : undefined}
               data-export-root={reportType === 'table' ? true : undefined}
-              data-export-type={reportType === 'table' ? 'exam' : undefined}
-              data-report-id={reportType === 'table' ? 'results-sheet' : undefined}
-              data-page-size={reportType === 'table' ? (sheetStyle === 'a3' ? 'A3' : 'A4') : undefined}
-              data-orientation={reportType === 'table' ? printOrientation : undefined}
+                data-export-type={reportType === 'table' ? 'exam' : undefined}
+                data-report-id={reportType === 'table' ? 'results-sheet' : undefined}
+                data-page-size={reportType === 'table' ? (sheetStyle === 'a3' ? 'A3' : 'A4') : undefined}
+                data-orientation={reportType === 'table' ? printOrientation : undefined}
               data-school-name={reportType === 'table' ? (schoolInfo.schoolName || '') : undefined}
               data-academic-year={reportType === 'table' ? (schoolInfo.academicYear || '') : undefined}
               data-report-title={reportType === 'table' ? 'شيت الرصد' : undefined}
@@ -498,7 +616,7 @@ const Reports: React.FC<ReportsProps> = ({
               className={isSheetOnly && sheetStyle === 'a3' ? 'p-6 overflow-auto' : ''}
             >
               {isSheetOnly && sheetStyle === 'a3' && (
-                <div className="mb-6 border-b-2 border-black pb-4 text-sm font-bold text-slate-700" dir="rtl">
+                <div className="mb-6 border-b-2 border-black pb-4 text-sm font-bold text-slate-700 print:hidden" dir="rtl">
                   <div className="flex items-start justify-between gap-4">
                     <div className="space-y-1 text-xs">
                       <div>إدارة:</div>
