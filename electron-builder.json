@@ -1,0 +1,31 @@
+{
+  "appId": "com.schoolpaypro.desktop",
+  "productName": "School Pay Pro",
+  "directories": {
+    "output": "dist-desktop"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/dist/**/*",
+    "package.json"
+  ],
+  "extraMetadata": {
+    "name": "schoolpaypro-desktop-test",
+    "version": "0.0.0-test",
+    "main": "electron/dist/main.js"
+  },
+  "asar": false,
+  "win": {
+    "target": "nsis",
+    "icon": "build/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowElevation": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "School Pay Pro (Test)"
+  }
+}

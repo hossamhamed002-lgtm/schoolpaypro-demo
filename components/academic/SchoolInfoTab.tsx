@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react';
-import { School as SchoolIcon, Save, Zap, Plus, Trash2, Edit3, Info, Lock, Camera } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { School as SchoolIcon, Save, Zap, Plus, Trash2, Edit3, Info, Lock, Camera, X } from 'lucide-react';
 import { Stage } from '../../types';
 
 interface SchoolInfoTabProps {
@@ -29,6 +29,24 @@ const SchoolInfoTab: React.FC<SchoolInfoTabProps> = ({ store }) => {
   const [schoolCodeError, setSchoolCodeError] = useState('');
   const isSchoolCodeLocked = !!activeSchool.School_Code;
   const [isApplyingTemplate, setIsApplyingTemplate] = useState(false);
+  const [infoModal, setInfoModal] = useState<{ open: boolean; title: string; message: string }>({
+    open: false,
+    title: '',
+    message: ''
+  });
+  const [confirmModal, setConfirmModal] = useState<{ open: boolean; message: string; onConfirm?: () => void }>({
+    open: false,
+    message: '',
+    onConfirm: undefined
+  });
+  const [sectionsModal, setSectionsModal] = useState<{
+    open: boolean;
+    data: Array<{ grade: string; defaultSections: number; value: number }>;
+  }>({ open: false, data: [] });
+
+  const closeInfo = () => setInfoModal({ open: false, title: '', message: '' });
+  const closeConfirm = () => setConfirmModal({ open: false, message: '', onConfirm: undefined });
+  const closeSections = () => setSectionsModal({ open: false, data: [] });
 
   const handleChange = (field: string, value: any) => {
     if (field === 'School_Code') {
@@ -53,24 +71,8 @@ const SchoolInfoTab: React.FC<SchoolInfoTabProps> = ({ store }) => {
     }
   };
 
-  const applyDefaultStructure = async () => {
-    if (!activeYear?.Year_ID) {
-      alert(lang === 'ar' ? 'يرجى تفعيل عام دراسي أولاً قبل تحميل الهيكل.' : 'Activate an academic year first.');
-      return;
-    }
-    if (!addStage || !addGrade || !addClass) {
-      alert(lang === 'ar' ? 'دوال الإضافة غير متاحة في هذا السياق.' : 'Add functions are not available here.');
-      return;
-    }
-
-    setIsApplyingTemplate(true);
-    const normalize = (v: string) => v.trim().toLowerCase();
-    let existingStages = stages || [];
-    let existingGrades = grades || [];
-    let existingClasses = classes || [];
-    let createdClasses = [...existingClasses];
-
-    const template = [
+  const template = useMemo(
+    () => [
       {
         stage: 'بيبي كلاس',
         grades: [{ name: 'بيبي كلاس', sections: 1 }]
@@ -109,7 +111,54 @@ const SchoolInfoTab: React.FC<SchoolInfoTabProps> = ({ store }) => {
           { name: 'الصف الثالث الثانوي', sections: 3 }
         ]
       }
-    ];
+    ],
+    []
+  );
+
+  const startApplyDefaultStructure = () => {
+    if (!activeYear?.Year_ID) {
+      setInfoModal({
+        open: true,
+        title: lang === 'ar' ? 'تنبيه' : 'Notice',
+        message: lang === 'ar' ? 'يرجى تفعيل عام دراسي أولاً قبل تحميل الهيكل.' : 'Activate an academic year first.'
+      });
+      return;
+    }
+    if (!addStage || !addGrade || !addClass) {
+      setInfoModal({
+        open: true,
+        title: lang === 'ar' ? 'تعذر الإجراء' : 'Unavailable',
+        message: lang === 'ar' ? 'دوال الإضافة غير متاحة في هذا السياق.' : 'Add functions are not available here.'
+      });
+      return;
+    }
+
+    const draft = template.flatMap((stg) =>
+      stg.grades.map((grd) => ({
+        grade: grd.name,
+        defaultSections: grd.sections,
+        value: grd.sections
+      }))
+    );
+    setSectionsModal({ open: true, data: draft });
+  };
+
+  const confirmSections = () => {
+    const map: Record<string, number> = {};
+    sectionsModal.data.forEach((item) => {
+      map[item.grade] = item.value;
+    });
+    closeSections();
+    applyDefaultStructure(map);
+  };
+
+  const applyDefaultStructure = async (sectionOverrides: Record<string, number>) => {
+    setIsApplyingTemplate(true);
+    const normalize = (v: string) => v.trim().toLowerCase();
+    let existingStages = stages || [];
+    let existingGrades = grades || [];
+    let existingClasses = classes || [];
+    let createdClasses = [...existingClasses];
 
     const ensureStage = async (stageName: string) => {
       const found = existingStages.find((s: any) => normalize(s.Stage_Name) === normalize(stageName));
@@ -158,9 +207,14 @@ const SchoolInfoTab: React.FC<SchoolInfoTabProps> = ({ store }) => {
         if (!cls?.Class_ID) continue;
         const result = deleteClass?.(cls.Class_ID);
         if (result && result.ok === false) {
-          alert(lang === 'ar'
-            ? 'تعذر مسح الفصول الحالية بسبب بيانات مرتبطة بها. يرجى حذف القيود أولاً.'
-            : 'Could not clear existing classes because they are in use. Please remove related data first.');
+          setInfoModal({
+            open: true,
+            title: lang === 'ar' ? 'تنبيه' : 'Alert',
+            message:
+              lang === 'ar'
+                ? 'تعذر مسح الفصول الحالية بسبب بيانات مرتبطة بها. يرجى حذف القيود أولاً.'
+                : 'Could not clear existing classes because they are in use. Please remove related data first.'
+          });
           setIsApplyingTemplate(false);
           return;
         }
@@ -178,21 +232,14 @@ const SchoolInfoTab: React.FC<SchoolInfoTabProps> = ({ store }) => {
       console.warn('failed to reset existing structure', err);
     }
 
-    const askSections = (gradeName: string, fallback: number) => {
-      const promptLabel = lang === 'ar'
-        ? `أدخل عدد الفصول لصف "${gradeName}" (0 لتعطيله مؤقتًا):`
-        : `Enter number of sections for "${gradeName}" (0 to mark inactive):`;
-      const input = typeof window !== 'undefined' ? window.prompt(promptLabel, String(fallback)) : null;
-      const parsed = Number(input);
-      if (!Number.isFinite(parsed) || parsed < 0) return fallback;
-      return Math.min(Math.max(parsed, 0), 30); // allow 0, cap 30
-    };
-
     for (const stg of template) {
       const stageId = await ensureStage(stg.stage);
       for (const grd of stg.grades) {
         const gradeId = await ensureGrade(stageId, grd.name);
-        const sectionCount = askSections(grd.name, grd.sections);
+        const sectionCount = Math.min(
+          Math.max(sectionOverrides[grd.name] ?? grd.sections ?? 0, 0),
+          30
+        );
         const gradeActive = sectionCount > 0;
         // mark grade as inactive if supported (fallback: store flag on grade object)
         if (!gradeActive) {
@@ -226,29 +273,38 @@ const SchoolInfoTab: React.FC<SchoolInfoTabProps> = ({ store }) => {
     }
 
     setIsApplyingTemplate(false);
-    alert(lang === 'ar' ? 'تم تحميل الهيكل الافتراضي.' : 'Default academic structure applied.');
+    setInfoModal({
+      open: true,
+      title: lang === 'ar' ? 'تم' : 'Done',
+      message: lang === 'ar' ? 'تم تحميل الهيكل الافتراضي.' : 'Default academic structure applied.'
+    });
   };
 
   const removeStage = (id: string) => {
     if (checkIntegrity.isStageUsed(id)) {
-      alert(t.cannotDeleteStageUsed);
+      setInfoModal({ open: true, title: lang === 'ar' ? 'تنبيه' : 'Notice', message: t.cannotDeleteStageUsed });
       return;
     }
-    if (confirm(t.confirmDeleteStage)) {
-      const currentStages = activeSchool.Stages_Available || [];
-      handleChange('Stages_Available', currentStages.filter((s: Stage) => s.Stage_ID !== id));
-    }
+    setConfirmModal({
+      open: true,
+      message: t.confirmDeleteStage,
+      onConfirm: () => {
+        const currentStages = activeSchool.Stages_Available || [];
+        handleChange('Stages_Available', currentStages.filter((s: Stage) => s.Stage_ID !== id));
+      }
+    });
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in slide-in-from-bottom-4 duration-500">
+    <>
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in slide-in-from-bottom-4 duration-500 relative">
       <div className="lg:col-span-2 space-y-6 text-start">
         <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 p-8">
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
-                <SchoolIcon size={24} />
-              </div>
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
+                  <SchoolIcon size={24} />
+                </div>
               <div>
                 <h3 className="text-xl font-black text-slate-800">{t.tabSchool}</h3>
                 <p className="text-[10px] text-green-500 font-black uppercase tracking-widest mt-0.5">Configuration Engine</p>
@@ -259,7 +315,7 @@ const SchoolInfoTab: React.FC<SchoolInfoTabProps> = ({ store }) => {
               {t.active}
             </div>
             <button
-              onClick={applyDefaultStructure}
+              onClick={startApplyDefaultStructure}
               disabled={isApplyingTemplate}
               className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-xs font-black shadow-lg hover:shadow-indigo-600/20 hover:scale-[1.02] transition disabled:opacity-60 disabled:cursor-not-allowed"
             >
@@ -416,6 +472,116 @@ const SchoolInfoTab: React.FC<SchoolInfoTabProps> = ({ store }) => {
         </div>
       </div>
     </div>
+
+    {/* Info Modal */}
+    {infoModal.open && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+        <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-lg font-black text-slate-800">{infoModal.title}</h4>
+            <button onClick={closeInfo} className="text-slate-400 hover:text-slate-600 transition">
+              <X size={18} />
+            </button>
+          </div>
+          <p className="text-sm text-slate-600 leading-relaxed">{infoModal.message}</p>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={closeInfo}
+              className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold shadow hover:bg-indigo-700 transition"
+            >
+              {lang === 'ar' ? 'حسناً' : 'OK'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Confirm Modal */}
+    {confirmModal.open && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+        <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-lg font-black text-slate-800">{lang === 'ar' ? 'تأكيد' : 'Confirm'}</h4>
+            <button onClick={closeConfirm} className="text-slate-400 hover:text-slate-600 transition">
+              <X size={18} />
+            </button>
+          </div>
+          <p className="text-sm text-slate-600 leading-relaxed">{confirmModal.message}</p>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={closeConfirm}
+              className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 transition"
+            >
+              {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+            </button>
+            <button
+              onClick={() => {
+                confirmModal.onConfirm?.();
+                closeConfirm();
+              }}
+              className="px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-bold shadow hover:bg-rose-700 transition"
+            >
+              {lang === 'ar' ? 'تأكيد' : 'Confirm'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Sections Modal */}
+    {sectionsModal.open && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+        <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-lg font-black text-slate-800">
+              {lang === 'ar' ? 'تحديد عدد الفصول' : 'Set sections per grade'}
+            </h4>
+            <button onClick={closeSections} className="text-slate-400 hover:text-slate-600 transition">
+              <X size={18} />
+            </button>
+          </div>
+          <div className="max-h-[60vh] overflow-y-auto space-y-3">
+            {sectionsModal.data.map((item, idx) => (
+              <div key={item.grade} className="flex items-center gap-3 border rounded-xl p-3">
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-slate-800">{item.grade}</p>
+                  <p className="text-xs text-slate-500">
+                    {lang === 'ar' ? 'الافتراضي' : 'Default'}: {item.defaultSections}
+                  </p>
+                </div>
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  value={item.value}
+                  onChange={(e) => {
+                    const next = [...sectionsModal.data];
+                    next[idx] = { ...item, value: Number(e.target.value) };
+                    setSectionsModal({ open: true, data: next });
+                  }}
+                  className="w-24 px-3 py-2 border border-slate-200 rounded-lg text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                />
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={closeSections}
+              className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-bold hover:bg-slate-200 transition"
+            >
+              {lang === 'ar' ? 'إلغاء' : 'Cancel'}
+            </button>
+            <button
+              onClick={confirmSections}
+              className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold shadow hover:bg-indigo-700 transition"
+            >
+              {lang === 'ar' ? 'تأكيد' : 'Apply'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 

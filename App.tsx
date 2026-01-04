@@ -71,6 +71,8 @@ const App: React.FC = () => {
   const [bindingStatus, setBindingStatus] = useState<LicenseBindingStatus | null>(null);
   const [showHwidWarning, setShowHwidWarning] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
+  const [updateStatus, setUpdateStatus] = useState<{ status: string; info?: any; progress?: any } | null>(null);
+  const isDesktopRuntime = typeof window !== 'undefined' && !!window.__APP_BRIDGE__?.updater;
   const enableLazyFonts = React.useCallback(() => {
     const link = document.getElementById('lazy-fonts') as HTMLLinkElement | null;
     if (link && link.disabled) {
@@ -89,6 +91,19 @@ const App: React.FC = () => {
       console.info('🧪 Demo Mode Active');
     }
   }, []);
+
+  React.useEffect(() => {
+    if (!isDesktopRuntime) return;
+    const dispose = window.__APP_BRIDGE__?.updater?.onUpdateStatus((payload) => {
+      setUpdateStatus(payload);
+    });
+    return () => dispose?.();
+  }, [isDesktopRuntime]);
+
+  const triggerUpdateCheck = React.useCallback(() => {
+    if (!isDesktopRuntime) return;
+    window.__APP_BRIDGE__?.updater?.checkForUpdates();
+  }, [isDesktopRuntime]);
 
   React.useEffect(() => {
     (window as any).setEntryMode = (mode: typeof entryMode) => setEntryMode(mode);
@@ -499,6 +514,35 @@ const App: React.FC = () => {
           className="flex h-screen bg-slate-50 transition-all duration-300 overflow-hidden"
           style={(store.isSoftBlocked || graceCopy) ? { paddingTop: '64px' } : undefined}
         >
+          {isDesktopRuntime && updateStatus?.status === 'available' && (
+            <div className="fixed bottom-4 right-4 z-40 bg-white shadow-lg border border-indigo-100 rounded-2xl p-4 w-80 animate-in slide-in-from-right duration-200">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 text-indigo-600">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 3v18m0 0l-4-4m4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+                <div className="flex-1 space-y-1">
+                  <p className="text-sm font-black text-slate-800">يتوفر تحديث جديد</p>
+                  <p className="text-xs text-slate-600">اضغط للتحقق من التحديثات وتثبيتها لاحقًا.</p>
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      onClick={triggerUpdateCheck}
+                      className="px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold shadow hover:bg-indigo-700 transition"
+                    >
+                      تحقق من التحديثات
+                    </button>
+                    <button
+                      onClick={() => setUpdateStatus(null)}
+                      className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 transition"
+                    >
+                      تحديث لاحقًا
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           <Sidebar
             activeTab={activeTab}
             setActiveTab={setActiveTab}
@@ -555,3 +599,13 @@ const App: React.FC = () => {
 };
 
 export default App;
+declare global {
+  interface Window {
+    __APP_BRIDGE__?: {
+      updater?: {
+        checkForUpdates: () => Promise<boolean>;
+        onUpdateStatus: (cb: (payload: any) => void) => () => void;
+      };
+    };
+  }
+}

@@ -36,6 +36,12 @@ const Control: React.FC<ControlProps> = ({ students, onUpdate }) => {
   const [callingListTerm, setCallingListTerm] = useState<'term1' | 'term2'>('term1');
   const [callingListDisplayMode, setCallingListDisplayMode] = useState<'single' | 'double'>('single');
   const [directoryTerm, setDirectoryTerm] = useState<'term1' | 'term2'>('term1');
+  const [distributionMode, setDistributionMode] = useState<'mixed' | 'separated'>('mixed');
+  const [distributionPlan, setDistributionPlan] = useState<{
+    map: Map<string, string>;
+    report: Array<{ name: string; capacity: number; assigned: number }>;
+    remaining: number;
+  } | null>(null);
 
   // Labels & Cards State
   const [labelsPerPage, setLabelsPerPage] = useState<number>(8);
@@ -181,42 +187,95 @@ const Control: React.FC<ControlProps> = ({ students, onUpdate }) => {
       });
   };
 
-  const previewDistribution = () => {
-      const gradeCommittees = committees.filter(c => c.gradeLevel === selectedGrade);
-      if (gradeCommittees.length === 0) {
-          alert('يرجى إضافة لجان لهذا الصف أولاً.');
-          return;
-      }
-
-      const validStudents = studentsInGrade
-        .filter(s => s.seatingNumber !== null)
-        .sort((a, b) => (a.seatingNumber || 0) - (b.seatingNumber || 0));
-
-      if (validStudents.length === 0) {
-          alert('لا يوجد طلاب لديهم أرقام جلوس لتوزيعهم.');
-          return;
-      }
-
-      let currentStudentIdx = 0;
-      const distributionReport = gradeCommittees.map(comm => {
-          const remainingStudents = validStudents.length - currentStudentIdx;
-          const assignedCount = Math.min(comm.capacity, remainingStudents);
-          currentStudentIdx += assignedCount;
-          
-          return {
-              name: comm.name,
-              capacity: comm.capacity,
-              assigned: assignedCount
-          };
+  const assignBalanced = (comms: ExamCommittee[], studs: Student[]) => {
+      const buckets = comms.map((c) => ({ ...c, assigned: 0 }));
+      const resultMap = new Map<string, string>();
+      studs.forEach((s) => {
+          const target = buckets
+              .filter((c) => c.assigned < c.capacity)
+              .sort((a, b) => a.assigned / a.capacity - b.assigned / b.capacity || a.assigned - b.assigned)[0];
+          if (!target) return;
+          resultMap.set(s.id, target.id);
+          target.assigned += 1;
       });
+      const report = buckets.map((b) => ({ name: b.name, capacity: b.capacity, assigned: b.assigned }));
+      return { map: resultMap, report };
+  };
 
-      const totalDistributed = currentStudentIdx;
-      const remainingUnassigned = validStudents.length - totalDistributed;
-      
-      const statusColor = remainingUnassigned === 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200';
-      const statusText = remainingUnassigned === 0 
+  const buildDistributionPlan = (mode: 'mixed' | 'separated') => {
+      const gradeCommittees = committees.filter((c) => c.gradeLevel === selectedGrade);
+      if (gradeCommittees.length === 0) return null;
+      const validStudents = studentsInGrade
+          .filter((s) => s.seatingNumber !== null)
+          .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
+      if (validStudents.length === 0) return null;
+
+      if (mode === 'mixed') {
+          const { map, report } = assignBalanced(gradeCommittees, validStudents);
+          const remaining = validStudents.length - Array.from(map.keys()).length;
+          return { map, report, remaining };
+      }
+
+      const males = validStudents.filter((s) => (s.gender || '').toLowerCase().startsWith('ذ') || (s.gender || '').toLowerCase() === 'm');
+      const females = validStudents.filter((s) => (s.gender || '').toLowerCase().startsWith('أ') || (s.gender || '').toLowerCase() === 'f');
+      const others = validStudents.filter((s) => !males.includes(s) && !females.includes(s));
+
+      const totalCapacity = gradeCommittees.reduce((acc, c) => acc + c.capacity, 0);
+      const targetMale = Math.round((males.length / validStudents.length) * totalCapacity);
+
+      const orderedComms = [...gradeCommittees].sort((a, b) => b.capacity - a.capacity);
+      const maleGroup: ExamCommittee[] = [];
+      const femaleGroup: ExamCommittee[] = [];
+      orderedComms.forEach((c) => {
+          const maleCap = maleGroup.reduce((acc, cc) => acc + cc.capacity, 0);
+          const femaleCap = femaleGroup.reduce((acc, cc) => acc + cc.capacity, 0);
+          if (maleCap < targetMale) maleGroup.push(c);
+          else femaleGroup.push(c);
+      });
+      if (femaleGroup.length === 0) {
+          femaleGroup.push(...maleGroup.splice(Math.floor(maleGroup.length / 2)));
+      }
+
+      const malePlan = assignBalanced(maleGroup, males);
+      const femalePlan = assignBalanced(femaleGroup, females);
+      const map = new Map<string, string>([...malePlan.map, ...femalePlan.map]);
+
+      if (others.length > 0) {
+          const combined = [...gradeCommittees].map((c) => ({
+              ...c,
+              assigned: Array.from(map.values()).filter((id) => id === c.id).length
+          }));
+          const fallback = assignBalanced(combined, others);
+          fallback.map.forEach((val, key) => map.set(key, val));
+      }
+
+      const report = gradeCommittees.map((c) => ({
+          name: c.name,
+          capacity: c.capacity,
+          assigned: Array.from(map.values()).filter((id) => id === c.id).length
+      }));
+      const remaining = validStudents.length - Array.from(map.keys()).length;
+      return { map, report, remaining };
+  };
+
+  const previewDistribution = (modeOverride?: 'mixed' | 'separated') => {
+      const mode = modeOverride || distributionMode;
+      const plan = buildDistributionPlan(mode);
+      const gradeCommittees = committees.filter(c => c.gradeLevel === selectedGrade);
+      const validStudents = studentsInGrade.filter(s => s.seatingNumber !== null);
+
+      if (!plan) {
+          alert('يرجى إضافة لجان لهذا الصف وطلاب بأرقام جلوس.');
+          return;
+      }
+
+      setDistributionMode(mode);
+      setDistributionPlan(plan);
+
+      const statusColor = plan.remaining === 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200';
+      const statusText = plan.remaining === 0 
           ? '✅ جميع الطلاب موزعين بشكل صحيح.' 
-          : `⚠️ يوجد (${remainingUnassigned}) طالب متبقي بدون لجنة لعدم كفاية السعة.`;
+          : `⚠️ يوجد (${plan.remaining}) طالب متبقي بدون لجنة لعدم كفاية السعة.`;
 
       setConfirmModal({
           isOpen: true,
@@ -225,16 +284,29 @@ const Control: React.FC<ControlProps> = ({ students, onUpdate }) => {
           details: [],
           customContent: (
               <div className="space-y-4 text-sm">
-                  <div className="grid grid-cols-2 gap-4 text-center mb-2">
-                      <div className="bg-blue-50 p-2 rounded">
+                  <div className="flex flex-wrap gap-4 text-center mb-2">
+                      <div className="flex-1 min-w-[140px] bg-blue-50 p-2 rounded">
                           <p className="text-gray-500 text-xs">إجمالي الطلاب (بأرقام جلوس)</p>
                           <p className="font-bold text-lg text-blue-700">{validStudents.length}</p>
                       </div>
-                      <div className="bg-emerald-50 p-2 rounded">
+                      <div className="flex-1 min-w-[140px] bg-emerald-50 p-2 rounded">
                           <p className="text-gray-500 text-xs">عدد اللجان المتاحة</p>
                           <p className="font-bold text-lg text-emerald-700">{gradeCommittees.length}</p>
                       </div>
-                  </div>
+                      <div className="flex-1 min-w-[180px] bg-gray-50 p-2 rounded">
+                          <p className="text-gray-500 text-xs mb-1">وضع التوزيع</p>
+                          <div className="flex items-center justify-center gap-3 text-xs font-bold text-slate-700">
+                            <label className="flex items-center gap-1 cursor-pointer">
+                              <input type="radio" name="distMode" checked={mode === 'mixed'} onChange={() => previewDistribution('mixed')} />
+                              مختلط
+                            </label>
+                            <label className="flex items-center gap-1 cursor-pointer">
+                              <input type="radio" name="distMode" checked={mode === 'separated'} onChange={() => previewDistribution('separated')} />
+                              منفصل بنين/بنات
+                            </label>
+                          </div>
+                      </div>
+                    </div>
 
                   <div className="max-h-48 overflow-y-auto border rounded-lg custom-scrollbar">
                       <table className="w-full text-right text-xs">
@@ -247,7 +319,7 @@ const Control: React.FC<ControlProps> = ({ students, onUpdate }) => {
                               </tr>
                           </thead>
                           <tbody>
-                              {distributionReport.map((row, idx) => (
+                              {plan.report.map((row, idx) => (
                                   <tr key={idx} className="border-b last:border-0">
                                       <td className="p-2 font-medium">{row.name}</td>
                                       <td className="p-2 text-center text-gray-500">{row.capacity}</td>
@@ -255,8 +327,8 @@ const Control: React.FC<ControlProps> = ({ students, onUpdate }) => {
                                       <td className="p-2 text-center">
                                           <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
                                               <div 
-                                                  className={`h-1.5 rounded-full ${row.assigned === row.capacity ? 'bg-red-400' : 'bg-green-500'}`}
-                                                  style={{ width: `${(row.assigned / row.capacity) * 100}%` }}
+                                                  className={`h-1.5 rounded-full ${row.assigned >= row.capacity ? 'bg-red-400' : 'bg-green-500'}`}
+                                                  style={{ width: `${Math.min((row.assigned / row.capacity) * 100, 100)}%` }}
                                               ></div>
                                           </div>
                                       </td>
@@ -271,21 +343,13 @@ const Control: React.FC<ControlProps> = ({ students, onUpdate }) => {
                   </div>
               </div>
           ),
-          onConfirm: () => executeDistribution(gradeCommittees, validStudents)
+          onConfirm: () => executeDistributionFromPlan()
       });
   };
 
-  const executeDistribution = (gradeCommittees: ExamCommittee[], validStudents: Student[]) => {
-      let currentStudentIdx = 0;
-      const distributionMap = new Map<string, string>(); 
-
-      gradeCommittees.forEach(comm => {
-          for (let i = 0; i < comm.capacity; i++) {
-              if (currentStudentIdx >= validStudents.length) break;
-              distributionMap.set(validStudents[currentStudentIdx].id, comm.id);
-              currentStudentIdx++;
-          }
-      });
+  const executeDistributionFromPlan = () => {
+      if (!distributionPlan) return;
+      const distributionMap = distributionPlan.map;
 
       const updatedStudents = students.map(s => {
           if (distributionMap.has(s.id)) {

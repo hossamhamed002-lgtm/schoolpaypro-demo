@@ -4,6 +4,7 @@ import { useJournal } from '../../src/hooks/useJournal';
 import { useAccounts } from '../../hooks/useAccountsLogic';
 import { JournalEntry, JournalLine, JournalSource, JournalStatus } from '../../src/types/journal.types';
 import { isFinancialYearClosed } from '../../src/utils/financialYearClose';
+import { showDesktopPrompt } from '../common/DesktopPromptDialog';
 
 interface DailyJournalProps {
   store: any;
@@ -137,11 +138,18 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ store, onBack }) => {
     approveEntry(selectedEntry.id, store.currentUser?.Username || store.currentUser?.User_ID || 'system');
   }, [approveEntry, selectedEntry, store.currentUser?.User_ID, store.currentUser?.Username, isClosed]);
 
-  const handleReject = useCallback(() => {
+  const handleReject = useCallback(async () => {
     if (isClosed) return;
     if (!selectedEntry) return;
-    const reason = window.prompt(isRtl ? 'سبب الرفض' : 'Rejection reason') || '';
-    rejectEntry(selectedEntry.id, reason);
+    const reason = await showDesktopPrompt({
+      title: isRtl ? 'سبب الرفض' : 'Rejection reason',
+      message: isRtl ? 'أدخل سبب رفض القيد' : 'Enter rejection reason',
+      placeholder: isRtl ? 'سبب الرفض' : 'Reason',
+      confirmLabel: isRtl ? 'تأكيد' : 'Confirm',
+      cancelLabel: isRtl ? 'إلغاء' : 'Cancel'
+    });
+    if (!reason || !reason.trim()) return;
+    rejectEntry(selectedEntry.id, reason.trim());
   }, [isClosed, isRtl, rejectEntry, selectedEntry]);
 
   const handleDelete = useCallback(() => {
