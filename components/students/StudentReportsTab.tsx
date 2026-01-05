@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { ClipboardList, ArrowRight, Printer, ArrowLeft } from 'lucide-react';
 import PrintModal, { ModalPrintSettings } from './PrintModal';
 
@@ -42,6 +42,90 @@ const PAPER_SIZES: Record<string, Record<'Portrait' | 'Landscape', { w: number; 
   A4: { Portrait: { w: 210, h: 297 }, Landscape: { w: 297, h: 210 } },
   A3: { Portrait: { w: 297, h: 420 }, Landscape: { w: 420, h: 297 } },
   Letter: { Portrait: { w: 216, h: 279 }, Landscape: { w: 279, h: 216 } }
+};
+
+const detectGender = (value: string): 'male' | 'female' | null => {
+  const gender = (value || '').toString().trim().toLowerCase();
+  if (
+    gender === 'ذكر' ||
+    gender === 'ذ' ||
+    gender.startsWith('ذ') ||
+    gender === 'm' ||
+    gender === '1' ||
+    gender === 'male'
+  ) {
+    return 'male';
+  }
+  if (
+    gender.startsWith('انث') ||
+    gender.startsWith('أنث') ||
+    gender.includes('أنثى') ||
+    gender.includes('اناث') ||
+    gender === 'f' ||
+    gender === '2' ||
+    gender === 'female' ||
+    gender === 'girl' ||
+    gender.includes('بنت')
+  ) {
+    return 'female';
+  }
+  return null;
+};
+
+const parseNationalIdBirthdate = (nid: string): Date | null => {
+  const digits = (nid || '').replace(/\D/g, '');
+  if (digits.length < 13) return null;
+  const centuryCode = digits[0];
+  const year = Number(digits.slice(1, 3));
+  const month = Number(digits.slice(3, 5));
+  const day = Number(digits.slice(5, 7));
+  if (!month || !day) return null;
+  const century = centuryCode === '3' ? 2000 : 1900;
+  const fullYear = century + year;
+  const d = new Date(fullYear, month - 1, day);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+const formatDate = (d: Date | null) => {
+  if (!d) return '—';
+  const dd = `${d.getDate()}`.padStart(2, '0');
+  const mm = `${d.getMonth() + 1}`.padStart(2, '0');
+  const yy = d.getFullYear();
+  return `${dd}/${mm}/${yy}`;
+};
+
+const ageOnOctoberFirst = (birth: Date | null, year: number) => {
+  if (!birth) return '—';
+  const target = new Date(year, 9, 1);
+  let years = target.getFullYear() - birth.getFullYear();
+  let months = target.getMonth() - birth.getMonth();
+  let days = target.getDate() - birth.getDate();
+  if (days < 0) {
+    months -= 1;
+    days += new Date(target.getFullYear(), target.getMonth(), 0).getDate();
+  }
+  if (months < 0) {
+    years -= 1;
+    months += 12;
+  }
+  return `${years} سنة ${months} شهر ${days} يوم`;
+};
+
+const agePartsOnOctoberFirst = (birth: Date | null, year: number) => {
+  if (!birth) return null;
+  const target = new Date(year, 9, 1);
+  let years = target.getFullYear() - birth.getFullYear();
+  let months = target.getMonth() - birth.getMonth();
+  let days = target.getDate() - birth.getDate();
+  if (days < 0) {
+    months -= 1;
+    days += new Date(target.getFullYear(), target.getMonth(), 0).getDate();
+  }
+  if (months < 0) {
+    years -= 1;
+    months += 12;
+  }
+  return { years, months, days };
 };
 
 type PrintSettings = ModalPrintSettings;
@@ -208,7 +292,10 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
   const [certStageId, setCertStageId] = useState<string>('');
   const [certGradeId, setCertGradeId] = useState<string>('');
   const [certStudentId, setCertStudentId] = useState<string>('');
-  const [certYearId, setCertYearId] = useState<string>('');
+  const [certYearId, setCertYearId] = useState<string>(workingYearId || '');
+  const [placementStageId, setPlacementStageId] = useState<string>('');
+  const [placementGradeId, setPlacementGradeId] = useState<string>('');
+  const [placementGenderMode, setPlacementGenderMode] = useState<'mixed' | 'male' | 'female'>('mixed');
   const [transferSearchName, setTransferSearchName] = useState('');
   const [transferSearchNationalId, setTransferSearchNationalId] = useState('');
   const [transferGradeId, setTransferGradeId] = useState('');
@@ -600,6 +687,32 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
     });
     return ids;
   }, [firstGradePerStage]);
+  const getFirstGradeForStage = React.useCallback(
+    (stageId: string) => firstGradePerStage.get(String(stageId)),
+    [firstGradePerStage]
+  );
+  const placementStageOptions = useMemo(() => stages || [], [stages]);
+  const placementGradeOptions = useMemo(() => grades || [], [grades]);
+  useEffect(() => {
+    // ضبط افتراضي لأول مرحلة وأول صف خاص بها لتقرير التنسيق
+    if (!placementStageId && placementStageOptions.length > 0) {
+      const st = placementStageOptions[0];
+      const sid = st?.Stage_ID || st?.id || '';
+      if (sid) {
+        setPlacementStageId(String(sid));
+        const fg = getFirstGradeForStage(sid);
+        const gid = fg?.Grade_ID || fg?.id || '';
+        if (gid) setPlacementGradeId(String(gid));
+      }
+    }
+  }, [placementStageId, placementStageOptions, getFirstGradeForStage]);
+
+  useEffect(() => {
+    if (!placementStageId) return;
+    const fg = getFirstGradeForStage(placementStageId);
+    const gid = fg?.Grade_ID || fg?.id || '';
+    if (gid) setPlacementGradeId(String(gid));
+  }, [placementStageId, getFirstGradeForStage]);
 
   const sourceStudents = allStudents && allStudents.length ? allStudents : students || [];
 
@@ -723,15 +836,42 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
       ''
     );
   }, [activeYear, years, workingYearId]);
+  const academicYearStart = useMemo(() => {
+    const match = (academicYearLabel || '').match(/\d{4}/);
+    return match ? Number(match[0]) : new Date().getFullYear();
+  }, [academicYearLabel]);
 
   const handleSelectReport = (id: string) => {
     setSelectedReportId(id);
     setTimeout(() => {
       alert(isRtl ? 'جاري تجهيز تقرير الطلاب للطباعة...' : 'Preparing student report for printing...');
     }, 50);
+    if (id) {
+      const rep = reports.find((r) => r.Report_ID === id);
+      const isPlacement =
+        rep?.Report_ID?.toString() === 'STU-FIRST-GRADE' ||
+        (rep?.Title_Ar || '').includes('تنسيق') ||
+        (rep?.Title_En || '').toLowerCase().includes('placement');
+      if (isPlacement) {
+        const stageEntry = placementStageOptions[0];
+        const defaultStage = stageEntry?.Stage_ID || stageEntry?.id || '';
+        if (defaultStage) {
+          setPlacementStageId(String(defaultStage));
+          const fg = getFirstGradeForStage(defaultStage);
+          const gid = fg?.Grade_ID || fg?.id || '';
+          if (gid) setPlacementGradeId(String(gid));
+        }
+        setPlacementGenderMode('mixed');
+      }
+    }
   };
 
   const selectedReport = reports.find((r) => r.Report_ID === selectedReportId);
+  const isPlacementReport =
+    selectedReport?.Report_ID?.toString() === 'STU-FIRST-GRADE' ||
+    (selectedReport?.Title_Ar || '').includes('تنسيق') ||
+    (selectedReport?.Title_Ar || '').includes('الصفوف الأولى') ||
+    (selectedReport?.Title_En || '').toLowerCase().includes('placement');
 
   const handleStageChange = (value: string) => {
     setSelectedStageId(value);
@@ -752,6 +892,15 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
     const cls = (classes || []).find((c: any) => String(c.Class_ID) === String(selectedClassId));
     return cls?.Class_Name || cls?.Name || '';
   }, [classes, selectedClassId]);
+
+  const placementStageName = useMemo(() => {
+    const st = stages.find((s: any) => String(s.Stage_ID || s.id) === String(placementStageId));
+    return st?.Stage_Name || st?.Name || '';
+  }, [stages, placementStageId]);
+  const placementGradeName = useMemo(() => {
+    const gr = grades.find((g: any) => String(g.Grade_ID || g.id) === String(placementGradeId));
+    return gr?.Grade_Name || gr?.Name || '';
+  }, [grades, placementGradeId]);
 
   const classSelectionReady = !!(selectedStageId && selectedGradeId && selectedClassId);
 
@@ -948,6 +1097,7 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
           s.Year_ID ||
           s.yearId ||
           '';
+        if (!yr) return true;
         return String(yr) === String(targetYear);
       });
     }
@@ -957,10 +1107,7 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
     if (certGradeId) {
       list = list.filter((s: any) => String(s.Grade_ID || s.gradeId) === String(certGradeId));
     }
-    list = list.filter((s: any) => {
-      const status = (s.Status || s.Student_Status || s.status || '').toString().toLowerCase();
-      return status.includes('enrolled') || status.includes('active') || status.includes('مقيد') || status === '';
-    });
+    // لا نستبعد حالات الحالة لضمان ظهور كل الطلاب في الفلتر
     const sortName = (s: any) => normalizeName(s.Name_Ar || s.Student_FullName || s.Full_Name || s.name || '');
     list.sort((a, b) => sortName(a).localeCompare(sortName(b), 'ar'));
     return list;
@@ -1075,6 +1222,28 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
     currentSchoolId
   ]);
   const sortedStudents = studentsForReports;
+  const placementStudents = useMemo(() => {
+    let list = [...studentsForReports];
+    if (placementStageId) {
+      list = list.filter((s: any) => String(s.Stage_ID || s.stageId) === String(placementStageId));
+    }
+    if (placementGradeId) {
+      list = list.filter((s: any) => String(s.Grade_ID || s.gradeId) === String(placementGradeId));
+    }
+    const genderFiltered = list.filter((s: any) => {
+      const g = detectGender(s.Gender || s.gender || s.Gender_ID || s.genderId || '');
+      if (placementGenderMode === 'male') return g === 'male';
+      if (placementGenderMode === 'female') return g === 'female';
+      return true;
+    });
+    genderFiltered.sort((a, b) =>
+      normalizeName(a.Name_Ar || a.Student_FullName || a.Full_Name || a.name || '').localeCompare(
+        normalizeName(b.Name_Ar || b.Student_FullName || b.Full_Name || b.name || ''),
+        'ar'
+      )
+    );
+    return genderFiltered;
+  }, [studentsForReports, placementStageId, placementGradeId, placementGenderMode]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 text-start" dir="rtl">
@@ -1220,6 +1389,49 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
                         {c.Class_Name || c.Name}
                       </option>
                     ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+          {isPlacementReport && (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 space-y-3 no-print">
+              <p className="text-sm font-bold text-slate-700">
+                {isRtl ? 'اختر المرحلة (سيتم اختيار الصف الأول تلقائيًا)' : 'Choose stage (first grade auto-selected)'}
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500">{isRtl ? 'المرحلة' : 'Stage'}</label>
+                  <select
+                    value={placementStageId}
+                    onChange={(e) => setPlacementStageId(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700"
+                  >
+                    {placementStageOptions.map((st: any) => (
+                      <option key={st.Stage_ID || st.id} value={st.Stage_ID || st.id}>
+                        {st.Stage_Name || st.Name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500">{isRtl ? 'الصف' : 'Grade'}</label>
+                  <input
+                    readOnly
+                    value={placementGradeName || ''}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500">{isRtl ? 'التوزيع' : 'Placement'}</label>
+                  <select
+                    value={placementGenderMode}
+                    onChange={(e) => setPlacementGenderMode(e.target.value as any)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700"
+                  >
+                    <option value="mixed">{isRtl ? 'مختلط' : 'Mixed'}</option>
+                    <option value="male">{isRtl ? 'ذكور فقط' : 'Male only'}</option>
+                    <option value="female">{isRtl ? 'إناث فقط' : 'Female only'}</option>
                   </select>
                 </div>
               </div>
@@ -2127,6 +2339,77 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
                               </>
                             );
                           })()}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : isPlacementReport ? (
+                    <div className="space-y-4" dir="rtl">
+                      <div className="text-center space-y-1">
+                        <h3 className="text-2xl font-black text-slate-900">كشف تنسيق الطلاب للصفوف الأولى</h3>
+                        <p className="text-sm font-bold text-slate-600">
+                          {academicYearLabel || '—'}
+                          {placementStageName ? ` — ${placementStageName}` : ''}
+                          {placementGradeName ? ` — ${placementGradeName}` : ''}
+                        </p>
+                      </div>
+                      <table className="w-full border-collapse border border-slate-300 text-sm">
+                        <thead className="bg-slate-100">
+                          <tr>
+                            <th className="py-2 px-3 border border-slate-300 text-center align-middle" rowSpan={2}>م</th>
+                            <th className="py-2 px-3 border border-slate-300 text-center align-middle" rowSpan={2}>اسم الطالب</th>
+                            <th className="py-2 px-3 border border-slate-300 text-center align-middle" rowSpan={2}>النوع</th>
+                            <th className="py-2 px-3 border border-slate-300 text-center align-middle" rowSpan={2}>الرقم القومي</th>
+                            <th className="py-2 px-3 border border-slate-300 text-center" colSpan={3}>تاريخ الميلاد</th>
+                            <th className="py-2 px-3 border border-slate-300 text-center" colSpan={3}>السن في أول أكتوبر</th>
+                          </tr>
+                          <tr>
+                            <th className="py-1 px-2 border border-slate-300 text-center">يوم</th>
+                            <th className="py-1 px-2 border border-slate-300 text-center">شهر</th>
+                            <th className="py-1 px-2 border border-slate-300 text-center">سنة</th>
+                            <th className="py-1 px-2 border border-slate-300 text-center">يوم</th>
+                            <th className="py-1 px-2 border border-slate-300 text-center">شهر</th>
+                            <th className="py-1 px-2 border border-slate-300 text-center">سنة</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {placementStudents.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="py-4 px-3 text-center text-slate-500 font-bold">
+                                {isRtl ? 'لا توجد بيانات طلاب لهذا التقرير.' : 'No students for this report.'}
+                              </td>
+                            </tr>
+                          ) : (
+                            placementStudents.map((stu: any, idx: number) => {
+                              const displayName =
+                                activeSettings.normalizeNames
+                                  ? normalizeName(stu.Name_Ar || stu.Student_FullName || stu.Full_Name || stu.name || '—')
+                                  : stu.Name_Ar || stu.Student_FullName || stu.Full_Name || stu.name || '—';
+                              const genderVal = detectGender(stu.Gender || stu.gender || stu.Gender_ID || stu.genderId || '');
+                              const genderLabel = genderVal === 'male' ? 'ذكر' : genderVal === 'female' ? 'أنثى' : '—';
+                              const nid = stu.National_ID || stu.nationalId || '';
+                              const birthRaw = stu.Birth_Date || stu.birthDate || null;
+                              const birthDate = birthRaw ? new Date(birthRaw) : parseNationalIdBirthdate(nid);
+                              const nidBirth = parseNationalIdBirthdate(nid);
+                              const birth = birthDate || nidBirth;
+                              const ageParts = agePartsOnOctoberFirst(birth, academicYearStart);
+                              return (
+                                <tr key={stu.Student_Global_ID || stu.Student_ID || stu.id || idx} className="odd:bg-white even:bg-slate-50">
+                                  <td className="py-2 px-3 border border-slate-300 text-center font-bold">{idx + 1}</td>
+                                  <td className="py-2 px-3 border border-slate-300 text-right font-bold text-slate-800">
+                                    {displayName}
+                                  </td>
+                                  <td className="py-2 px-3 border border-slate-300 text-center">{genderLabel}</td>
+                                  <td className="py-2 px-3 border border-slate-300 text-center">{nid || '—'}</td>
+                                  <td className="py-2 px-3 border border-slate-300 text-center">{birth ? String(birth.getDate()).padStart(2, '0') : '—'}</td>
+                                  <td className="py-2 px-3 border border-slate-300 text-center">{birth ? String(birth.getMonth() + 1).padStart(2, '0') : '—'}</td>
+                                  <td className="py-2 px-3 border border-slate-300 text-center">{birth ? birth.getFullYear() : '—'}</td>
+                                  <td className="py-2 px-3 border border-slate-300 text-center">{ageParts ? ageParts.years : '—'}</td>
+                                  <td className="py-2 px-3 border border-slate-300 text-center">{ageParts ? ageParts.months : '—'}</td>
+                                  <td className="py-2 px-3 border border-slate-300 text-center">{ageParts ? ageParts.days : '—'}</td>
+                                </tr>
+                              );
+                            })
+                          )}
                         </tbody>
                       </table>
                     </div>
