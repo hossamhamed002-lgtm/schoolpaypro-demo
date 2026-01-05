@@ -645,11 +645,19 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
     return list;
   }, [sourceStudents, transferGradeId, transferClassId, transferSearchName, transferSearchNationalId]);
 
-  const baseReports = studentReportConfig?.Available_Reports || [];
+  const baseReportsRaw = studentReportConfig?.Available_Reports || [];
+  const baseReports = useMemo(
+    () =>
+      baseReportsRaw.filter(
+        (r: any) => !(r?.Title_Ar?.includes('ميزانية') && r?.Title_Ar?.includes('عددية'))
+      ),
+    [baseReportsRaw]
+  );
   const extraReports: ReportCard[] = [
     { Report_ID: 'STU-12D', Title_Ar: 'سجل ١٢ د', Title_En: 'Form 12D Register' },
     { Report_ID: 'STU-TRANSFER', Title_Ar: 'تقرير الطلاب المحولين', Title_En: 'Transferred Students' },
     { Report_ID: CLASS_LIST_REPORT_ID, Title_Ar: 'قوائم الفصول', Title_En: 'Class Rosters' },
+    { Report_ID: BUDGET_REPORT_ID, Title_Ar: 'ميزانية عددية للطلاب', Title_En: 'Students Numeric Budget' },
     { Report_ID: ENROLL_CERT_REPORT_ID, Title_Ar: 'إفادة قيد طالب بالمدرسة', Title_En: 'Student Enrollment Certificate' },
     { Report_ID: TRANSFER_REQUEST_REPORT_ID, Title_Ar: 'طلب تحويل طالب', Title_En: 'Student Transfer Request' },
     { Report_ID: PARENTS_LIST_REPORT_ID, Title_Ar: 'قائمة أولياء الأمور', Title_En: 'Parents List' }
@@ -660,7 +668,7 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
       if (!merged.some((r) => r.Report_ID === er.Report_ID)) merged.push(er);
     });
     return merged;
-  }, [baseReports]);
+  }, [baseReports, extraReports]);
 
   const currentYearId = useMemo(
     () =>
@@ -1958,109 +1966,170 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
                   <p className="text-slate-400 font-bold italic">-- {isRtl ? 'لا توجد بيانات طلاب' : 'No students data'} --</p>
                 ) : (
                   selectedReportId === BUDGET_REPORT_ID ? (
-                    <table className="w-full border-collapse border border-slate-300 text-sm">
-                      <thead className="bg-slate-100">
-                        <tr>
-                          <th className="py-2 px-3 border border-slate-300 text-center">المرحلة</th>
-                          <th className="py-2 px-3 border border-slate-300 text-center">الصف</th>
-                          <th className="py-2 px-3 border border-slate-300 text-center">عدد الفصول</th>
-                          <th className="py-2 px-3 border border-slate-300 text-center">عدد الذكور</th>
-                          <th className="py-2 px-3 border border-slate-300 text-center">عدد الإناث</th>
-                          <th className="py-2 px-3 border border-slate-300 text-center">إجمالي الطلاب</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(() => {
-                          const gradeBuckets = new Map<
-                            string,
-                            { stageName: string; gradeName: string; classCount: number; male: number; female: number }
-                          >();
-                          classes.forEach((c: any) => {
-                            const gid = String(c.Grade_ID || c.gradeId || c.id || '');
-                            const sid = String(c.Stage_ID || c.stageId || '');
-                            if (!gid) return;
-                            const stageObj = stages.find((st: any) => String(st.Stage_ID || st.id) === sid) || {};
-                            const gradeObj = grades.find((g: any) => String(g.Grade_ID || g.id) === gid) || {};
-                            const current = gradeBuckets.get(gid) || {
-                              stageName: stageObj.Stage_Name || stageObj.Name || '—',
-                              gradeName: gradeObj.Grade_Name || gradeObj.Name || '—',
-                              classCount: 0,
-                              male: 0,
-                              female: 0
-                            };
-                            current.classCount += 1;
-                            gradeBuckets.set(gid, current);
-                          });
+                    <div className="space-y-4" dir="rtl">
+                      <div className="text-center space-y-1">
+                        <h3 className="text-2xl font-black text-slate-900">ميزانية عددية للطلاب</h3>
+                        <p className="text-sm font-bold text-slate-600">{academicYearLabel || '—'}</p>
+                      </div>
+                      <table className="w-full border-collapse border border-slate-300 text-sm">
+                        <thead className="bg-slate-100">
+                          <tr>
+                            <th className="py-2 px-3 border border-slate-300 text-center align-middle" rowSpan={2}>المرحلة</th>
+                            <th className="py-2 px-3 border border-slate-300 text-center align-middle" rowSpan={2}>الصف</th>
+                            <th className="py-2 px-3 border border-slate-300 text-center align-middle" rowSpan={2}>عدد الفصول</th>
+                            <th className="py-2 px-3 border border-slate-300 text-center" colSpan={2}>اعداد الطلبة</th>
+                            <th className="py-2 px-3 border border-slate-300 text-center align-middle" rowSpan={2}>إجمالي الطلاب</th>
+                          </tr>
+                          <tr>
+                            <th className="py-2 px-3 border border-slate-300 text-center">ذكور</th>
+                            <th className="py-2 px-3 border border-slate-300 text-center">إناث</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            const gradeBuckets = new Map<
+                              string,
+                              { stageId: string; stageName: string; gradeName: string; classCount: number; male: number; female: number }
+                            >();
+                            classes.forEach((c: any) => {
+                              const gid = String(c.Grade_ID || c.gradeId || c.id || '');
+                              const sidRaw = String(c.Stage_ID || c.stageId || '');
+                              const gradeObj = grades.find((g: any) => String(g.Grade_ID || g.id) === gid) || {};
+                              const derivedStageId = sidRaw || String(gradeObj.Stage_ID || gradeObj.stageId || '');
+                              if (!gid) return;
+                              const stageObj = stages.find((st: any) => String(st.Stage_ID || st.id) === derivedStageId) || {};
+                              const current = gradeBuckets.get(gid) || {
+                                stageId: derivedStageId,
+                                stageName: stageObj.Stage_Name || stageObj.Name || '—',
+                                gradeName: gradeObj.Grade_Name || gradeObj.Name || '—',
+                                classCount: 0,
+                                male: 0,
+                                female: 0
+                              };
+                              current.classCount += 1;
+                              gradeBuckets.set(gid, current);
+                            });
 
-                          studentsForReports.forEach((stu: any) => {
-                            const gid = String(stu.Grade_ID || stu.gradeId || stu.GradeId || stu.grade_id || '');
-                            const sid = String(stu.Stage_ID || stu.stageId || '');
-                            if (!gid) return;
-                            const stageObj = stages.find((st: any) => String(st.Stage_ID || st.id) === sid) || {};
-                            const gradeObj = grades.find((g: any) => String(g.Grade_ID || g.id) === gid) || {};
-                            const current = gradeBuckets.get(gid) || {
-                              stageName: stageObj.Stage_Name || stageObj.Name || '—',
-                              gradeName: gradeObj.Grade_Name || gradeObj.Name || '—',
-                              classCount: 0,
-                              male: 0,
-                              female: 0
-                            };
-                            const gender = (stu.Gender || stu.gender || '').toString().toLowerCase();
-                            if (gender.includes('ذ') || gender.includes('male') || gender.includes('m')) {
-                              current.male += 1;
-                            } else if (gender.includes('أ') || gender.includes('female') || gender.includes('f')) {
-                              current.female += 1;
+                            studentsForReports.forEach((stu: any) => {
+                              const gid = String(stu.Grade_ID || stu.gradeId || stu.GradeId || stu.grade_id || '');
+                              const sidRaw = String(stu.Stage_ID || stu.stageId || '');
+                              if (!gid) return;
+                              const gradeObj = grades.find((g: any) => String(g.Grade_ID || g.id) === gid) || {};
+                              const derivedStageId = sidRaw || String(gradeObj.Stage_ID || gradeObj.stageId || '');
+                              const stageObj = stages.find((st: any) => String(st.Stage_ID || st.id) === derivedStageId) || {};
+                              const current = gradeBuckets.get(gid) || {
+                                stageId: derivedStageId,
+                                stageName: stageObj.Stage_Name || stageObj.Name || '—',
+                                gradeName: gradeObj.Grade_Name || gradeObj.Name || '—',
+                                classCount: 0,
+                                male: 0,
+                                female: 0
+                              };
+                            const gender = (
+                              stu.Gender ||
+                              stu.gender ||
+                              stu.Gender_ID ||
+                              stu.genderId ||
+                              ''
+                            )
+                              .toString()
+                              .trim()
+                              .toLowerCase();
+                              const isMale =
+                                gender === 'ذكر' ||
+                                gender === 'ذ' ||
+                                gender.startsWith('ذ') ||
+                                gender === 'm' ||
+                                gender === '1' ||
+                                gender === 'male';
+                              const isFemale =
+                                gender.startsWith('انث') ||
+                                gender.startsWith('أنث') ||
+                                gender.includes('أنثى') ||
+                                gender.includes('اناث') ||
+                                gender === 'f' ||
+                                gender === '2' ||
+                                gender === 'female' ||
+                                gender === 'girl' ||
+                                gender.includes('بنت');
+                              if (isMale) {
+                                current.male += 1;
+                              } else if (isFemale) {
+                                current.female += 1;
+                              }
+                              gradeBuckets.set(gid, current);
+                            });
+
+                            const stageBuckets = new Map<
+                              string,
+                              { stageName: string; grades: { gid: string; gradeName: string; classCount: number; male: number; female: number }[] }
+                            >();
+                            gradeBuckets.forEach((data, gid) => {
+                              const entry = stageBuckets.get(data.stageId) || { stageName: data.stageName, grades: [] };
+                              entry.grades.push({
+                                gid,
+                                gradeName: data.gradeName,
+                                classCount: data.classCount,
+                                male: data.male,
+                                female: data.female
+                              });
+                              stageBuckets.set(data.stageId, entry);
+                            });
+
+                            let totalClasses = 0;
+                            let totalMale = 0;
+                            let totalFemale = 0;
+
+                            const rows = Array.from(stageBuckets.entries()).map(([sid, data]) => {
+                              return data.grades.map((g, idx) => {
+                                const total = g.male + g.female;
+                                totalClasses += g.classCount;
+                                totalMale += g.male;
+                                totalFemale += g.female;
+                                return (
+                                  <tr key={`${sid}-${g.gid}`} className="odd:bg-white even:bg-slate-50">
+                                    {idx === 0 && (
+                                      <td className="py-2 px-3 border border-slate-300 text-center font-bold" rowSpan={data.grades.length}>
+                                        {data.stageName}
+                                      </td>
+                                    )}
+                                    <td className="py-2 px-3 border border-slate-300 text-center font-bold">{g.gradeName}</td>
+                                    <td className="py-2 px-3 border border-slate-300 text-center">{g.classCount}</td>
+                                    <td className="py-2 px-3 border border-slate-300 text-center">{g.male}</td>
+                                    <td className="py-2 px-3 border border-slate-300 text-center">{g.female}</td>
+                                    <td className="py-2 px-3 border border-slate-300 text-center font-black">{total}</td>
+                                  </tr>
+                                );
+                              });
+                            }).flat();
+
+                            if (rows.length === 0) {
+                              return (
+                                <tr>
+                                  <td colSpan={6} className="py-4 px-3 text-center text-slate-500 font-bold">
+                                    {isRtl ? 'لا توجد بيانات طلاب لهذا العام.' : 'No students data for current year.'}
+                                  </td>
+                                </tr>
+                              );
                             }
-                            gradeBuckets.set(gid, current);
-                          });
 
-                          let totalClasses = 0;
-                          let totalMale = 0;
-                          let totalFemale = 0;
-
-                          const rows = Array.from(gradeBuckets.entries()).map(([gid, data]) => {
-                            const total = data.male + data.female;
-                            totalClasses += data.classCount;
-                            totalMale += data.male;
-                            totalFemale += data.female;
                             return (
-                              <tr key={gid} className="odd:bg-white even:bg-slate-50">
-                                <td className="py-2 px-3 border border-slate-300 text-center font-bold">{data.stageName}</td>
-                                <td className="py-2 px-3 border border-slate-300 text-center font-bold">{data.gradeName}</td>
-                                <td className="py-2 px-3 border border-slate-300 text-center">{data.classCount}</td>
-                                <td className="py-2 px-3 border border-slate-300 text-center">{data.male}</td>
-                                <td className="py-2 px-3 border border-slate-300 text-center">{data.female}</td>
-                                <td className="py-2 px-3 border border-slate-300 text-center font-black">{total}</td>
-                              </tr>
+                              <>
+                                {rows}
+                                <tr className="bg-slate-100 font-black">
+                                  <td className="py-2 px-3 border border-slate-300 text-center">الإجمالي</td>
+                                  <td className="py-2 px-3 border border-slate-300 text-center">—</td>
+                                  <td className="py-2 px-3 border border-slate-300 text-center">{totalClasses}</td>
+                                  <td className="py-2 px-3 border border-slate-300 text-center">{totalMale}</td>
+                                  <td className="py-2 px-3 border border-slate-300 text-center">{totalFemale}</td>
+                                  <td className="py-2 px-3 border border-slate-300 text-center">{totalMale + totalFemale}</td>
+                                </tr>
+                              </>
                             );
-                          });
-
-                          if (rows.length === 0) {
-                            return (
-                              <tr>
-                                <td colSpan={6} className="py-4 px-3 text-center text-slate-500 font-bold">
-                                  {isRtl ? 'لا توجد بيانات طلاب لهذا العام.' : 'No students data for current year.'}
-                                </td>
-                              </tr>
-                            );
-                          }
-
-                          return (
-                            <>
-                              {rows}
-                              <tr className="bg-slate-100 font-black">
-                                <td className="py-2 px-3 border border-slate-300 text-center">الإجمالي</td>
-                                <td className="py-2 px-3 border border-slate-300 text-center">—</td>
-                                <td className="py-2 px-3 border border-slate-300 text-center">{totalClasses}</td>
-                                <td className="py-2 px-3 border border-slate-300 text-center">{totalMale}</td>
-                                <td className="py-2 px-3 border border-slate-300 text-center">{totalFemale}</td>
-                                <td className="py-2 px-3 border border-slate-300 text-center">{totalMale + totalFemale}</td>
-                              </tr>
-                            </>
-                          );
-                        })()}
-                      </tbody>
-                    </table>
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
                   ) : selectedReportId === 'STU-12D' ? (
                     <table className="w-full border-collapse border border-slate-300 text-sm">
                       <thead className="bg-slate-100">
