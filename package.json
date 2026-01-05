@@ -2,6 +2,7 @@
   "name": "edulogic-erp---master-school-blueprint",
   "private": true,
   "version": "0.0.0",
+  "description": "School Pay Pro desktop application for schools.",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +10,8 @@
     "preview": "vite preview",
     "electron:compile": "tsc -p electron/tsconfig.json",
     "electron:dev": "concurrently -k \"npm:dev\" \"npm run electron:compile && wait-on http://localhost:3000 && cross-env DESKTOP_TEST=true ELECTRON_DISABLE_SECURITY_WARNINGS=true electron electron/dist/main.js\"",
-    "electron:build": "npm run build && npm run electron:compile && cross-env DESKTOP_TEST=true electron-builder --config electron-builder.json"
+    "electron:build": "npm run build && npm run electron:compile && cross-env DESKTOP_TEST=true electron-builder --config electron-builder.json",
+    "electron:build:win": "npm run build && npm run electron:compile && cross-env DESKTOP_TEST=true electron-builder --config electron-builder.json --win --x64 --ia32"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",
@@ -38,43 +40,5 @@
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
     "wait-on": "^7.0.1"
-  },
-  "build": {
-    "appId": "com.schoolpaypro.desktop",
-    "productName": "School Pay Pro",
-    "directories": {
-      "output": "dist-desktop"
-    },
-    "files": [
-      "dist/**/*",
-      "electron/dist/**/*",
-      "package.json"
-    ],
-    "extraMetadata": {
-      "name": "schoolpaypro-desktop-test",
-      "main": "electron/dist/main.js"
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "schoolpaypro",
-        "repo": "desktop",
-        "releaseType": "release"
-      }
-    ],
-    "win": {
-      "target": "nsis",
-      "icon": "build/icon.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowElevation": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "School Pay Pro (Test)"
-    },
-    "asar": false
   }
 }

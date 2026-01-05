@@ -26,6 +26,7 @@ const CLASS_LIST_REPORT_ID = 'STU-CLASS-LISTS';
 const ENROLL_CERT_REPORT_ID = 'STU-ENROLL-CERT';
 const TRANSFER_REQUEST_REPORT_ID = 'STU-TRANSFER-REQUEST';
 const PARENTS_LIST_REPORT_ID = 'STU-PARENTS-LIST';
+const BUDGET_REPORT_ID = 'STU-BUDGET';
 const normalizeName = (name: string) => {
   let n = name || '';
   n = n.replace(/[آأإٱ]/g, 'ا');
@@ -676,6 +677,16 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
       (
         activeSchool?.School_Code ||
         activeSchool?.Code ||
+        ''
+      )
+        .toString()
+        .toLowerCase(),
+    [activeSchool]
+  );
+  const currentSchoolId = useMemo(
+    () =>
+      (
+        activeSchool?.School_ID ||
         activeSchool?.ID ||
         activeSchool?.id ||
         ''
@@ -871,28 +882,32 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
           s.Year_ID ||
           s.yearId ||
           '';
+        if (!yr) return true;
         return String(yr) === String(currentYearId);
       });
     }
 
-    if (currentSchoolCode) {
+    if (currentSchoolCode || currentSchoolId) {
       list = list.filter((s: any) => {
         const sc =
           s.School_Code ||
           s.schoolCode ||
+          '';
+        const sid = (
           s.School_ID ||
           s.schoolId ||
-          '';
-        return sc && sc.toString().toLowerCase() === currentSchoolCode;
+          s.school_id ||
+          ''
+        )
+          .toString()
+          .toLowerCase();
+        const matchCode = sc && sc.toString().toLowerCase() === currentSchoolCode;
+        const matchId = sid && currentSchoolId && sid === currentSchoolId;
+        if (sc || sid) {
+          return (!!currentSchoolCode && matchCode) || (!!currentSchoolId && matchId);
+        }
+        return true;
       });
-    }
-
-    if (selectedStageId) {
-      list = list.filter((s: any) => String(s.Stage_ID || s.stageId) === String(selectedStageId));
-    }
-
-    if (selectedGradeId) {
-      list = list.filter((s: any) => String(s.Grade_ID || s.gradeId) === String(selectedGradeId));
     }
 
     list = list.filter((s: any) => String(s.Class_ID || s.classId) === String(selectedClassId));
@@ -970,7 +985,7 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
     return isRtl ? 'اختياري' : 'Optional';
   };
 
-  const sortedStudents = useMemo(() => {
+  const studentsForReports = useMemo(() => {
     let list = [...sourceStudents];
 
     if (currentYearId) {
@@ -981,32 +996,31 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
           s.Year_ID ||
           s.yearId ||
           '';
+        if (!yr) return true;
         return String(yr) === String(currentYearId);
       });
     }
 
-    if (currentSchoolCode) {
+    if (currentSchoolCode || currentSchoolId) {
       list = list.filter((s: any) => {
         const sc =
           s.School_Code ||
           s.schoolCode ||
+          '';
+        const sid = (
           s.School_ID ||
           s.schoolId ||
-          '';
-        return sc && sc.toString().toLowerCase() === currentSchoolCode;
-      });
-    }
-
-    if (allowedGradeIds.size > 0) {
-      list = list.filter((s: any) => {
-        const gid = String(
-          s.Grade_ID ||
-            s.gradeId ||
-            s.GradeId ||
-            s.grade_id ||
-            ''
-        );
-        return gid && allowedGradeIds.has(gid);
+          s.school_id ||
+          ''
+        )
+          .toString()
+          .toLowerCase();
+        const matchCode = sc && sc.toString().toLowerCase() === currentSchoolCode;
+        const matchId = sid && currentSchoolId && sid === currentSchoolId;
+        if (sc || sid) {
+          return (!!currentSchoolCode && matchCode) || (!!currentSchoolId && matchId);
+        }
+        return true;
       });
     }
 
@@ -1050,8 +1064,9 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
     activeSettings.normalizeNames,
     currentYearId,
     currentSchoolCode,
-    allowedGradeIds
+    currentSchoolId
   ]);
+  const sortedStudents = studentsForReports;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 text-start" dir="rtl">
@@ -1832,51 +1847,61 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
                         {isRtl ? 'الرجاء اختيار المرحلة والصف والفصل لعرض التقرير.' : 'Please choose stage, grade, and class to view the report.'}
                       </div>
                     ) : (
-                      <table className="w-full border-collapse border border-slate-300 text-sm" dir="rtl">
-                        <thead className="bg-slate-100">
-                          <tr>
-                            <th className="py-2 px-3 border border-slate-300 text-center">م</th>
-                            <th className="py-2 px-3 border border-slate-300 text-center">اسم الطالب</th>
-                            <th className="py-2 px-3 border border-slate-300 text-center">النوع</th>
-                            <th className="py-2 px-3 border border-slate-300 text-center">الديانة</th>
-                            <th className="py-2 px-3 border border-slate-300 text-center">حالة القيد</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {classRosterStudents.length === 0 ? (
+                      <>
+                        <table className="w-full border-collapse border border-slate-300 text-sm" dir="rtl">
+                          <thead className="bg-slate-100">
                             <tr>
-                              <td colSpan={5} className="py-4 px-3 text-center text-slate-500 font-bold">
-                                {isRtl ? 'لا توجد بيانات طلاب لهذا الفصل.' : 'No students found for this class.'}
-                              </td>
+                              <th className="py-2 px-3 border border-slate-300 text-center">م</th>
+                              <th className="py-2 px-3 border border-slate-300 text-center">اسم الطالب</th>
+                              <th className="py-2 px-3 border border-slate-300 text-center">النوع</th>
+                              <th className="py-2 px-3 border border-slate-300 text-center">الديانة</th>
+                              <th className="py-2 px-3 border border-slate-300 text-center">الرقم القومي</th>
                             </tr>
-                          ) : (
-                            classRosterStudents.map((stu: any, idx: number) => {
-                              const displayName =
-                                activeSettings.normalizeNames
-                                  ? normalizeName(
-                                      stu.Name_Ar || stu.Student_FullName || stu.Full_Name || stu.name || '—'
-                                    )
-                                  : stu.Name_Ar || stu.Student_FullName || stu.Full_Name || stu.name || '—';
-                              const gender = stu.Gender || stu.gender || '—';
-                              const religion = stu.Religion || stu.religion || '—';
-                              const statusText = mapEnrollmentStatus(
-                                stu.Status || stu.Student_Status || stu.status || ''
-                              );
-                              return (
-                                <tr key={stu.Student_Global_ID || stu.Student_ID || stu.id || idx}>
-                                  <td className="py-2 px-3 border border-slate-300 text-center font-bold">{idx + 1}</td>
-                                  <td className="py-2 px-3 border border-slate-300 text-right font-bold text-slate-800">
-                                    {displayName}
-                                  </td>
-                                  <td className="py-2 px-3 border border-slate-300 text-center">{gender}</td>
-                                  <td className="py-2 px-3 border border-slate-300 text-center">{religion}</td>
-                                  <td className="py-2 px-3 border border-slate-300 text-center">{statusText || '—'}</td>
-                                </tr>
-                              );
-                            })
-                          )}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {classRosterStudents.length === 0 ? (
+                              <tr>
+                                <td colSpan={5} className="py-4 px-3 text-center text-slate-500 font-bold">
+                                  {isRtl ? 'لا توجد بيانات طلاب لهذا الفصل.' : 'No students found for this class.'}
+                                </td>
+                              </tr>
+                            ) : (
+                              classRosterStudents.map((stu: any, idx: number) => {
+                                const displayName =
+                                  activeSettings.normalizeNames
+                                    ? normalizeName(
+                                        stu.Name_Ar || stu.Student_FullName || stu.Full_Name || stu.name || '—'
+                                      )
+                                    : stu.Name_Ar || stu.Student_FullName || stu.Full_Name || stu.name || '—';
+                                const gender = stu.Gender || stu.gender || '—';
+                                const religion = stu.Religion || stu.religion || '—';
+                                const nationalId = stu.National_ID || stu.nationalId || '—';
+                                return (
+                                  <tr key={stu.Student_Global_ID || stu.Student_ID || stu.id || idx}>
+                                    <td className="py-2 px-3 border border-slate-300 text-center font-bold">{idx + 1}</td>
+                                    <td className="py-2 px-3 border border-slate-300 text-right font-bold text-slate-800">
+                                      {displayName}
+                                    </td>
+                                    <td className="py-2 px-3 border border-slate-300 text-center">{gender}</td>
+                                    <td className="py-2 px-3 border border-slate-300 text-center">{religion}</td>
+                                    <td className="py-2 px-3 border border-slate-300 text-center">{nationalId || '—'}</td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                        <div className="flex flex-col gap-3 pt-4">
+                          <div className="text-sm font-bold text-slate-800 text-right">
+                            {`إجمالي عدد الطلاب: ${classRosterStudents.length}`}
+                          </div>
+                          <div className="grid grid-cols-3 gap-4 text-sm font-bold text-slate-700">
+                            <div className="text-right">شؤون الطلبة</div>
+                            <div className="text-center">وكيل المدرسة</div>
+                            <div className="text-left">مدير المدرسة</div>
+                          </div>
+                        </div>
+                      </>
                     )}
                   </div>
                 ) : selectedReportId === PARENTS_LIST_REPORT_ID ? (
@@ -1932,7 +1957,111 @@ const StudentReportsTab: React.FC<{ store: any }> = ({ store }) => {
                 ) : sortedStudents.length === 0 ? (
                   <p className="text-slate-400 font-bold italic">-- {isRtl ? 'لا توجد بيانات طلاب' : 'No students data'} --</p>
                 ) : (
-                  selectedReportId === 'STU-12D' ? (
+                  selectedReportId === BUDGET_REPORT_ID ? (
+                    <table className="w-full border-collapse border border-slate-300 text-sm">
+                      <thead className="bg-slate-100">
+                        <tr>
+                          <th className="py-2 px-3 border border-slate-300 text-center">المرحلة</th>
+                          <th className="py-2 px-3 border border-slate-300 text-center">الصف</th>
+                          <th className="py-2 px-3 border border-slate-300 text-center">عدد الفصول</th>
+                          <th className="py-2 px-3 border border-slate-300 text-center">عدد الذكور</th>
+                          <th className="py-2 px-3 border border-slate-300 text-center">عدد الإناث</th>
+                          <th className="py-2 px-3 border border-slate-300 text-center">إجمالي الطلاب</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const gradeBuckets = new Map<
+                            string,
+                            { stageName: string; gradeName: string; classCount: number; male: number; female: number }
+                          >();
+                          classes.forEach((c: any) => {
+                            const gid = String(c.Grade_ID || c.gradeId || c.id || '');
+                            const sid = String(c.Stage_ID || c.stageId || '');
+                            if (!gid) return;
+                            const stageObj = stages.find((st: any) => String(st.Stage_ID || st.id) === sid) || {};
+                            const gradeObj = grades.find((g: any) => String(g.Grade_ID || g.id) === gid) || {};
+                            const current = gradeBuckets.get(gid) || {
+                              stageName: stageObj.Stage_Name || stageObj.Name || '—',
+                              gradeName: gradeObj.Grade_Name || gradeObj.Name || '—',
+                              classCount: 0,
+                              male: 0,
+                              female: 0
+                            };
+                            current.classCount += 1;
+                            gradeBuckets.set(gid, current);
+                          });
+
+                          studentsForReports.forEach((stu: any) => {
+                            const gid = String(stu.Grade_ID || stu.gradeId || stu.GradeId || stu.grade_id || '');
+                            const sid = String(stu.Stage_ID || stu.stageId || '');
+                            if (!gid) return;
+                            const stageObj = stages.find((st: any) => String(st.Stage_ID || st.id) === sid) || {};
+                            const gradeObj = grades.find((g: any) => String(g.Grade_ID || g.id) === gid) || {};
+                            const current = gradeBuckets.get(gid) || {
+                              stageName: stageObj.Stage_Name || stageObj.Name || '—',
+                              gradeName: gradeObj.Grade_Name || gradeObj.Name || '—',
+                              classCount: 0,
+                              male: 0,
+                              female: 0
+                            };
+                            const gender = (stu.Gender || stu.gender || '').toString().toLowerCase();
+                            if (gender.includes('ذ') || gender.includes('male') || gender.includes('m')) {
+                              current.male += 1;
+                            } else if (gender.includes('أ') || gender.includes('female') || gender.includes('f')) {
+                              current.female += 1;
+                            }
+                            gradeBuckets.set(gid, current);
+                          });
+
+                          let totalClasses = 0;
+                          let totalMale = 0;
+                          let totalFemale = 0;
+
+                          const rows = Array.from(gradeBuckets.entries()).map(([gid, data]) => {
+                            const total = data.male + data.female;
+                            totalClasses += data.classCount;
+                            totalMale += data.male;
+                            totalFemale += data.female;
+                            return (
+                              <tr key={gid} className="odd:bg-white even:bg-slate-50">
+                                <td className="py-2 px-3 border border-slate-300 text-center font-bold">{data.stageName}</td>
+                                <td className="py-2 px-3 border border-slate-300 text-center font-bold">{data.gradeName}</td>
+                                <td className="py-2 px-3 border border-slate-300 text-center">{data.classCount}</td>
+                                <td className="py-2 px-3 border border-slate-300 text-center">{data.male}</td>
+                                <td className="py-2 px-3 border border-slate-300 text-center">{data.female}</td>
+                                <td className="py-2 px-3 border border-slate-300 text-center font-black">{total}</td>
+                              </tr>
+                            );
+                          });
+
+                          if (rows.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={6} className="py-4 px-3 text-center text-slate-500 font-bold">
+                                  {isRtl ? 'لا توجد بيانات طلاب لهذا العام.' : 'No students data for current year.'}
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return (
+                            <>
+                              {rows}
+                              <tr className="bg-slate-100 font-black">
+                                <td className="py-2 px-3 border border-slate-300 text-center">الإجمالي</td>
+                                <td className="py-2 px-3 border border-slate-300 text-center">—</td>
+                                <td className="py-2 px-3 border border-slate-300 text-center">{totalClasses}</td>
+                                <td className="py-2 px-3 border border-slate-300 text-center">{totalMale}</td>
+                                <td className="py-2 px-3 border border-slate-300 text-center">{totalFemale}</td>
+                                <td className="py-2 px-3 border border-slate-300 text-center">{totalMale + totalFemale}</td>
+                              </tr>
+                            </>
+                          );
+                        })()}
+                      </tbody>
+                    </table>
+                  ) : selectedReportId === 'STU-12D' ? (
                     <table className="w-full border-collapse border border-slate-300 text-sm">
                       <thead className="bg-slate-100">
                         <tr>
