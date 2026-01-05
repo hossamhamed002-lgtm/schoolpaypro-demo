@@ -307,11 +307,11 @@ const SystemLogin: React.FC<SystemLoginProps> = ({
               <div className="mt-3 flex items-center justify-between gap-3 text-xs font-bold text-slate-600">
                 <button
                   type="button"
-                  onClick={() => setProgrammerOpen(true)}
-                  className="inline-flex items-center gap-2 text-indigo-600 hover:text-indigo-800"
-                  title="لوحة المبرمج"
+                  onClick={(e) => e.preventDefault()}
+                  className="inline-flex items-center gap-2 text-transparent select-none pointer-events-none"
+                  title=""
                 >
-                  <span className="text-[10px] font-black">لوحة المبرمج</span>
+                  <span className="text-[10px] font-black">‎</span>
                 </button>
                 <a
                   href="mailto:hossamhamed002@gmail.com"

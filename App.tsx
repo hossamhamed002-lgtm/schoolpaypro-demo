@@ -31,6 +31,9 @@ import RenewalScreen from './components/license/RenewalScreen';
 import LicenseBlockedScreen from './components/license/LicenseBlockedScreen';
 import EntryGatewayScreen from './components/EntryGatewayScreen';
 import { licenseExists } from './license/licenseStorage';
+import { enterProgrammerMode, exitProgrammerMode, isProgrammerMode } from './src/programmerEntry';
+import { getAppMeta, setLastEntry } from './src/storage/appMeta';
+import { resolveInitialRoute } from './src/navigation/resolveInitialRoute';
 
 type TabId =
   | 'dashboard'
@@ -45,6 +48,7 @@ type TabId =
   | 'programmer';
 
 const App: React.FC = () => {
+  const IS_DEV = Boolean((import.meta as any)?.env?.DEV);
   const programmerHint = (() => {
     try {
       return !!localStorage.getItem('EDULOGIC_PROGRAMMER_USER_V1');
@@ -72,6 +76,7 @@ const App: React.FC = () => {
   const [showHwidWarning, setShowHwidWarning] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
   const [updateStatus, setUpdateStatus] = useState<{ status: string; info?: any; progress?: any } | null>(null);
+  const [updateAvailable, setUpdateAvailable] = useState<any | null>(null);
   const isDesktopRuntime = typeof window !== 'undefined' && !!window.__APP_BRIDGE__?.updater;
   const enableLazyFonts = React.useCallback(() => {
     const link = document.getElementById('lazy-fonts') as HTMLLinkElement | null;
@@ -97,13 +102,35 @@ const App: React.FC = () => {
     const dispose = window.__APP_BRIDGE__?.updater?.onUpdateStatus((payload) => {
       setUpdateStatus(payload);
     });
-    return () => dispose?.();
+    const disposeAvailable = window.__APP_BRIDGE__?.updater?.onUpdateAvailable((info) => {
+      setUpdateAvailable(info || {});
+      if ((import.meta as any)?.env?.DEV) {
+        // eslint-disable-next-line no-console
+        console.info('[AUTOUPDATE][AVAILABLE]', info);
+      }
+    });
+    return () => {
+      dispose?.();
+      disposeAvailable?.();
+    };
   }, [isDesktopRuntime]);
 
   const triggerUpdateCheck = React.useCallback(() => {
     if (!isDesktopRuntime) return;
     window.__APP_BRIDGE__?.updater?.checkForUpdates();
   }, [isDesktopRuntime]);
+
+  const openReleasePage = React.useCallback(() => {
+    if (!isDesktopRuntime) return;
+    window.__APP_BRIDGE__?.updater?.openReleasePage();
+    setUpdateAvailable(null);
+  }, [isDesktopRuntime]);
+
+  React.useEffect(() => {
+    if (updateStatus?.status === 'available' && !updateAvailable) {
+      setUpdateAvailable(updateStatus.info || {});
+    }
+  }, [updateStatus, updateAvailable]);
 
   React.useEffect(() => {
     (window as any).setEntryMode = (mode: typeof entryMode) => setEntryMode(mode);
@@ -125,6 +152,14 @@ const App: React.FC = () => {
   }, [store.licenseStatus?.allowed, entryMode]);
 
   React.useEffect(() => {
+    if (store.currentUser) return;
+    if (isProgrammerMode()) {
+      setProgrammerShortcut(true);
+      setEntryMode(null);
+    }
+  }, [store.currentUser]);
+
+  React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!isDesktopEnvLocal() || isDemoMode() || store.isProgrammer) return;
       const key = (e.key || '').toLowerCase();
@@ -134,20 +169,38 @@ const App: React.FC = () => {
         setEntryMode(null);
         setRenewalMode(false);
         setProgrammerShortcut(true);
+        enterProgrammerMode('shortcut');
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [store, isDesktopEnvLocal]);
 
+  const prevUserRef = React.useRef<any>(null);
   React.useEffect(() => {
-    if (store.currentUser) {
+    const hadUser = !!prevUserRef.current;
+    const hasUser = !!store.currentUser;
+    if (hasUser) {
       setProgrammerShortcut(false);
-    }
-    if (store.currentUser || store.activeSchool) {
+      if (store.isProgrammer) {
+        enterProgrammerMode('login');
+        setLastEntry('programmer');
+      } else {
+        setLastEntry('app');
+      }
       setSkipGatewayOnce(false);
+    } else if (hadUser && !hasUser) {
+      exitProgrammerMode();
+      setLastEntry('gateway');
     }
-  }, [store.currentUser]);
+    prevUserRef.current = store.currentUser;
+  }, [store.currentUser, store.isProgrammer]);
+
+  React.useEffect(() => {
+    if (!store.currentUser && store.licenseStatus?.allowed) {
+      setLastEntry('login');
+    }
+  }, [store.currentUser, store.licenseStatus?.allowed]);
 
   const softBlockCopy = React.useMemo(() => {
     if (!store.isSoftBlocked) return null;
@@ -193,6 +246,16 @@ const App: React.FC = () => {
     }
   }, []);
   const activationReason = store.licenseStatus?.reason || store.licenseStatus?.status;
+  const appMeta = React.useMemo(() => getAppMeta(), []);
+  const gatewayEligible = !store.isProgrammer
+    && !store.currentUser
+    && appMeta.firstRun
+    && !appMeta.gatewaySeen
+    && !pathIsAdmin
+    && !isDemoMode()
+    && (!store.licenseStatus || store.licenseStatus.allowed === false || store.licenseStatus.status === 'missing')
+    && !hasStoredLicense
+    && !skipGatewayOnce;
   const shouldShowActivation =
     !!(
       !pathIsAdmin
@@ -213,13 +276,29 @@ const App: React.FC = () => {
     && !store.isProgrammer
     && !isDemoMode()
   );
-  const shouldShowGateway = !store.isProgrammer
-    && !store.currentUser
-    && !pathIsAdmin
-    && !isDemoMode()
-    && (!store.licenseStatus || store.licenseStatus.allowed === false || store.licenseStatus.status === 'missing')
-    && !hasStoredLicense
-    && !skipGatewayOnce;
+  const shouldShowGateway = gatewayEligible;
+  const initialRoute = resolveInitialRoute({
+    appMeta,
+    isProgrammer: store.isProgrammer,
+    hasUser: !!store.currentUser,
+    hasActiveSchool: !!store.activeSchool,
+    requiresActivation: shouldShowActivation,
+    gatewayEligible
+  });
+
+  React.useEffect(() => {
+    if (store.currentUser) return;
+    if (initialRoute === 'activation') {
+      setEntryMode('activate');
+    } else if (initialRoute === 'gateway') {
+      setEntryMode('gateway');
+    } else {
+      setEntryMode(null);
+    }
+    if (IS_DEV) {
+      console.info('[NAV][INIT]', { lastEntry: appMeta.lastEntry, initialRoute });
+    }
+  }, [initialRoute, store.currentUser, appMeta.lastEntry]);
 
   const DemoBadge = () => (
     isDemoMode() ? (
@@ -514,7 +593,7 @@ const App: React.FC = () => {
           className="flex h-screen bg-slate-50 transition-all duration-300 overflow-hidden"
           style={(store.isSoftBlocked || graceCopy) ? { paddingTop: '64px' } : undefined}
         >
-          {isDesktopRuntime && updateStatus?.status === 'available' && (
+          {isDesktopRuntime && updateAvailable && (
             <div className="fixed bottom-4 right-4 z-40 bg-white shadow-lg border border-indigo-100 rounded-2xl p-4 w-80 animate-in slide-in-from-right duration-200">
               <div className="flex items-start gap-3">
                 <div className="mt-0.5 text-indigo-600">
@@ -523,17 +602,17 @@ const App: React.FC = () => {
                   </svg>
                 </div>
                 <div className="flex-1 space-y-1">
-                  <p className="text-sm font-black text-slate-800">يتوفر تحديث جديد</p>
-                  <p className="text-xs text-slate-600">اضغط للتحقق من التحديثات وتثبيتها لاحقًا.</p>
+                  <p className="text-sm font-black text-slate-800">يوجد إصدار أحدث من School Pay Pro</p>
+                  <p className="text-xs text-slate-600">يمكنك تحميل التحديث من صفحة الإصدارات.</p>
                   <div className="flex gap-2 pt-2">
                     <button
-                      onClick={triggerUpdateCheck}
+                      onClick={openReleasePage}
                       className="px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold shadow hover:bg-indigo-700 transition"
                     >
-                      تحقق من التحديثات
+                      تحميل التحديث
                     </button>
                     <button
-                      onClick={() => setUpdateStatus(null)}
+                      onClick={() => setUpdateAvailable(null)}
                       className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 transition"
                     >
                       تحديث لاحقًا

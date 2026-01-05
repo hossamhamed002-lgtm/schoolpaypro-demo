@@ -52,9 +52,16 @@
     ],
     "extraMetadata": {
       "name": "schoolpaypro-desktop-test",
-      "version": "0.0.0-test",
       "main": "electron/dist/main.js"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "schoolpaypro",
+        "repo": "desktop",
+        "releaseType": "release"
+      }
+    ],
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico"

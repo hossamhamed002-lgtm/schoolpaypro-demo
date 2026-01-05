@@ -2,6 +2,7 @@ import { isDemoMode } from '../src/guards/appMode';
 import { LicensePayload } from './types';
 import getHWID from './hwid';
 import { getNodeCrypto, getNodeFs, getNodeOs, getNodePath, isNodeRuntime } from './runtime';
+import { StorageAdapter } from '../src/storage/StorageAdapter';
 
 const nodeCrypto = getNodeCrypto();
 const nodeFs = getNodeFs();
@@ -57,10 +58,29 @@ const decodeBase64 = (value: string) => {
 
 const readPersisted = (): string | null => {
   if (isDemoMode()) return null;
+  // Try adapter first
+  try {
+    const adapted = StorageAdapter.get<string>('license', 'current');
+    if (adapted) {
+      if ((import.meta as any)?.env?.DEV) {
+        // eslint-disable-next-line no-console
+        console.info('[LICENSE][READ] adapter');
+      }
+      return adapted;
+    }
+  } catch {
+    // ignore adapter errors silently
+  }
   const storage = getLocalStorage();
   if (storage) {
     const raw = storage.getItem(STORAGE_KEY) || storage.getItem(ALT_STORAGE_KEY);
-    if (raw) return raw;
+    if (raw) {
+      if ((import.meta as any)?.env?.DEV) {
+        // eslint-disable-next-line no-console
+        console.info('[LICENSE][READ] legacy');
+      }
+      return raw;
+    }
   }
   const filePath = getFilePath();
   if (filePath && nodeFs?.existsSync(filePath)) {
@@ -80,9 +100,22 @@ const persist = (value: string) => {
     try {
       storage.setItem(STORAGE_KEY, value);
       storage.setItem(ALT_STORAGE_KEY, value);
+      if ((import.meta as any)?.env?.DEV) {
+        // eslint-disable-next-line no-console
+        console.info('[LICENSE][WRITE] legacy dual-write');
+      }
     } catch {
       // ignore quota errors to keep offline flow alive
     }
+  }
+  try {
+    StorageAdapter.set<string>('license', 'current', value);
+    if ((import.meta as any)?.env?.DEV) {
+      // eslint-disable-next-line no-console
+      console.info('[LICENSE][WRITE] adapter');
+    }
+  } catch {
+    // ignore
   }
   const filePath = getFilePath();
   if (filePath && nodeFs) {

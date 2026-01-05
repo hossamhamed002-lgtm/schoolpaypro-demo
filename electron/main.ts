@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import * as path from 'path';
 import * as url from 'url';
@@ -7,6 +7,7 @@ process.env.DESKTOP_TEST = process.env.DESKTOP_TEST || 'true';
 
 const isDev = !app.isPackaged;
 const allowUpdates = process.env.DESKTOP_TEST === 'true' || process.env.NODE_ENV === 'production';
+const RELEASE_URL = 'https://github.com/schoolpaypro/desktop/releases/latest';
 
 const createWindow = () => {
   const win = new BrowserWindow({
@@ -29,6 +30,10 @@ const createWindow = () => {
 };
 
 app.whenReady().then(() => {
+  if (isDev) {
+    // eslint-disable-next-line no-console
+    console.info('[AUTOUPDATE] version', app.getVersion());
+  }
   createWindow();
 
   if (allowUpdates) {
@@ -40,11 +45,14 @@ app.whenReady().then(() => {
     });
 
     autoUpdater.on('update-available', (info) => {
-      BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('updater:status', { status: 'available', info }));
+      BrowserWindow.getAllWindows().forEach((w) => {
+        w.webContents.send('updater:status', { status: 'available', info });
+        w.webContents.send('updater:available', info);
+      });
     });
 
     autoUpdater.on('update-not-available', () => {
-      BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('updater:status', { status: 'not-available' }));
+      if (isDev) console.info('[AUTOUPDATE] update-not-available');
     });
 
     autoUpdater.on('error', (err) => {
@@ -68,6 +76,20 @@ app.whenReady().then(() => {
         if (isDev) console.warn('[AUTOUPDATE][CHECK][ERROR]', e);
         return false;
       }
+    });
+
+    ipcMain.handle('updater:openReleasePage', async () => {
+      try {
+        await shell.openExternal(RELEASE_URL);
+        return true;
+      } catch (e) {
+        if (isDev) console.warn('[AUTOUPDATE][OPEN][ERROR]', e);
+        return false;
+      }
+    });
+
+    autoUpdater.checkForUpdates().catch((err) => {
+      if (isDev) console.warn('[AUTOUPDATE][READY][ERROR]', err);
     });
   }
 
